@@ -1,0 +1,12 @@
+# Local Python environment
+venv/
+__pycache__/
+
+# Generated lab reports
+static/
+lab_report.pdf
+
+# Not needed to run the app
+template.py
+test_data/
+.claude/

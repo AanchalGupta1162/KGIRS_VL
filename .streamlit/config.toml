@@ -1,0 +1,48 @@
+[theme]
+font = "'IBM Plex Sans':https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+headingFont = "'Space Grotesk':https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap"
+codeFont = "'IBM Plex Mono':https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+baseFontSize = 15
+headingFontWeights = [700, 600, 600, 600, 500, 500]
+headingFontSizes = ["34px", "26px", "20px", "17px", "15px", "13px"]
+baseRadius = "medium"
+buttonRadius = "medium"
+showWidgetBorder = true
+showSidebarBorder = true
+linkUnderline = false
+
+[theme.light]
+primaryColor = "#0E6F78"
+backgroundColor = "#FBFCFC"
+secondaryBackgroundColor = "#EEF3F4"
+textColor = "#15232A"
+borderColor = "#D3DEE0"
+dataframeHeaderBackgroundColor = "#EEF3F4"
+codeBackgroundColor = "#EEF3F4"
+orangeColor = "#C2610C"
+greenColor = "#1B7F4B"
+redColor = "#C2362F"
+chartCategoricalColors = ["#0E6F78", "#C2610C", "#5B6CC7", "#1B7F4B", "#A43F79", "#6B7780"]
+chartSequentialColors = ["#F2F8F8", "#D4EAEB", "#B0D8DA", "#86C2C6", "#5AA9AF", "#348F97", "#0E6F78", "#0B5A62", "#08464C", "#053237"]
+
+[theme.light.sidebar]
+backgroundColor = "#EEF3F4"
+secondaryBackgroundColor = "#E1EAEC"
+
+[theme.dark]
+primaryColor = "#1A8F99"
+backgroundColor = "#0D1619"
+secondaryBackgroundColor = "#162328"
+textColor = "#E3ECEE"
+borderColor = "#27393F"
+dataframeHeaderBackgroundColor = "#162328"
+codeBackgroundColor = "#162328"
+orangeColor = "#F0923A"
+greenColor = "#4CC38A"
+redColor = "#F2685F"
+chartCategoricalColors = ["#3FB8C2", "#F0923A", "#8C9BF2", "#4CC38A", "#E07DB8", "#9AA6AE"]
+chartSequentialColors = ["#0F2226", "#12333A", "#15454D", "#185861", "#1B6B75", "#237F89", "#34949D", "#52AAB2", "#7CC1C7", "#AAD8DC"]
+
+[theme.dark.sidebar]
+backgroundColor = "#101C20"
+secondaryBackgroundColor = "#1A2A30"
