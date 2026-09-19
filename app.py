@@ -1,6 +1,6 @@
 """
 Virtual Laboratory - Experiment 4: TF-IDF Based Document Retrieval
-Course: Knowledge Graphs and Information Retrieval Systems (D17A/B/C)
+Course: Knowledge Graphs and Information Retrieval Systems (D17C)
 Roll Nos: 16-20 | Group No: 4
 
 Built on the standard 4-section Virtual Lab template:
@@ -14,8 +14,10 @@ Note: No custom CSS is used so that Streamlit's native light and dark themes ren
 
 import re
 import math
+import zlib
 from collections import Counter
 from datetime import datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,7 +32,7 @@ from fpdf import FPDF
 
 EXPERIMENT_CONFIG = {
     "title": "Experiment 4: TF-IDF Based Document Retrieval",
-    "course": "Knowledge Graphs and Information Retrieval Systems (D17A/B/C)",
+    "course": "Knowledge Graphs and Information Retrieval Systems (D17C)",
     "roll_no": "16-20",
     "group_no": "4",
     "objectives": [
@@ -39,7 +41,9 @@ EXPERIMENT_CONFIG = {
         "Construct TF-IDF weighted vector representations for a document collection and a search query.",
         "Rank documents by similarity between the query vector and each document vector in the vector "
         "space model.",
-        "Analyze how different TF and IDF weighting schemes influence retrieval ranking and result quality."
+        "Analyze how different TF and IDF weighting schemes influence retrieval ranking and result quality.",
+        "Evaluate retrieval effectiveness using Precision@k, Recall@k, F1@k, Average Precision, "
+        "Reciprocal Rank, and nDCG@k against relevance judgments."
     ]
 }
 
@@ -75,19 +79,36 @@ length, so a long document is not unfairly favored simply because it contains mo
    similarity or raw dot product).
 5. **Ranking** - documents are sorted in descending order of similarity score to produce the final
    retrieval result.
+6. **Evaluation** - the ranked list is compared against a set of documents judged relevant to the
+   query, and effectiveness is summarized with standard IR evaluation parameters.
+
+### Evaluation Parameters
+A document counts as *retrieved* when its similarity score is above zero. Given the set of relevant
+documents **R** and the top **k** retrieved documents:
+
+- **Precision@k** - fraction of the top k results that are relevant: |relevant in top k| / k.
+- **Recall@k** - fraction of all relevant documents found in the top k: |relevant in top k| / |R|.
+- **F1@k** - harmonic mean of Precision@k and Recall@k: 2PR / (P + R).
+- **Average Precision (AP)** - mean of the precision values at each rank where a relevant document
+  appears, divided over |R|. Averaging AP over several queries gives **MAP**.
+- **Reciprocal Rank (RR)** - 1 / rank of the first relevant document. Averaged over queries it is **MRR**.
+- **nDCG@k** - Discounted Cumulative Gain, DCG@k = sum of rel_i / log2(i + 1), divided by the DCG of
+  an ideal ranking. It rewards placing relevant documents near the top.
     """,
     "procedure": [
         "Step 1: Review the theoretical background on TF-IDF weighting and the vector space model below.",
         "Step 2: Navigate to the Simulation section in the sidebar menu.",
         "Step 3: Inspect (or edit) the sample document corpus - one document per line.",
-        "Step 4: Enter a search query that is relevant to the corpus.",
+        "Step 4: Enter a search query that is relevant to the corpus, or pick one of the sample queries.",
         "Step 5: Choose a Term Frequency scheme and an Inverse Document Frequency scheme.",
         "Step 6: Observe the ranked documents, the similarity bar chart, and the underlying TF, IDF and "
         "TF-IDF matrices.",
-        "Step 7: Click 'Record Current Trial' after each configuration to log it into your session table.",
-        "Step 8: Repeat for at least 3-4 distinct queries / weighting-scheme combinations.",
-        "Step 9: Complete the assessment Quiz to test your conceptual understanding.",
-        "Step 10: Open Report Generation, enter your student information, and download your PDF report."
+        "Step 7: Open the Evaluation tab, mark the documents that are relevant to your query, choose the "
+        "cut-off k, and note the Precision, Recall, F1, AP, RR and nDCG values.",
+        "Step 8: Click 'Record this trial' after each configuration to log it into your session table.",
+        "Step 9: Repeat for at least 3-4 distinct queries / weighting-scheme combinations.",
+        "Step 10: Complete the assessment Quiz to test your conceptual understanding.",
+        "Step 11: Open Report Generation, enter your student information, and download your PDF report."
     ],
     "key_terms": {
         "Term Frequency (TF)": "How often a term occurs within a single document; may be a raw count, "
@@ -105,7 +126,15 @@ length, so a long document is not unfairly favored simply because it contains mo
         "Vocabulary": "The set of unique terms extracted from the corpus after tokenization and "
                        "stop-word removal.",
         "Out-of-Vocabulary (OOV) Term": "A query term that never occurs in the corpus; it cannot be "
-                                         "assigned an IDF weight and is ignored during scoring."
+                                         "assigned an IDF weight and is ignored during scoring.",
+        "Relevance Judgment": "A human decision on whether a document satisfies the information need "
+                               "behind a query; the ground truth for evaluation.",
+        "Precision@k": "Share of the top k retrieved documents that are relevant.",
+        "Recall@k": "Share of all relevant documents that appear in the top k results.",
+        "Average Precision (AP)": "Mean of the precision values at the ranks of each relevant document; "
+                                   "its mean over queries is MAP.",
+        "nDCG@k": "Normalized Discounted Cumulative Gain; rewards relevant documents ranked near the top, "
+                   "scaled so a perfect ranking scores 1."
     },
     "references": [
         "G. Salton and M. J. McGill, *Introduction to Modern Information Retrieval*, McGraw-Hill, 1983.",
@@ -126,18 +155,23 @@ STOPWORDS = {
     "there", "here", "about", "into", "over", "under", "also", "using", "used", "use"
 }
 
-# Default sample corpus (kept intentionally within the course's own subject area).
-DEFAULT_CORPUS = [
-    "Information retrieval systems help users find relevant documents from large collections using search queries.",
-    "Machine learning algorithms can automatically learn patterns from data without explicit programming.",
-    "Knowledge graphs represent entities and their relationships in a structured graph format.",
-    "Natural language processing enables computers to understand and generate human language text.",
-    "The TF-IDF weighting scheme combines term frequency and inverse document frequency to score term importance.",
-    "Deep learning models use neural networks with multiple layers to learn complex representations.",
-    "Search engines rank documents by relevance using scoring functions such as TF-IDF and BM25.",
-    "Graph databases like Neo4j store data as nodes and relationships for efficient traversal queries."
-]
+# Default sample corpus: 41 documents, one per line, across five course topics (information retrieval,
+# knowledge graphs, machine learning / NLP, databases, semantic search / RAG) plus two long documents.
+SAMPLE_CORPUS_PATH = Path(__file__).with_name("sample_corpus.txt")
+DEFAULT_CORPUS = [line.strip() for line in SAMPLE_CORPUS_PATH.read_text(encoding="utf-8").splitlines()
+                  if line.strip()]
 DEFAULT_QUERY = "TF-IDF document ranking"
+
+# Relevance judgments for the sample corpus: query -> documents a person judged relevant by topic,
+# independent of how TF-IDF happens to rank them. Used as the Evaluation tab's defaults.
+SAMPLE_JUDGMENTS = {
+    "TF-IDF document ranking": ["D3", "D4", "D40"],
+    "evaluation measures for ranked retrieval": ["D5", "D37", "D41"],
+    "graph database query language": ["D10", "D27"],
+    "semantic search with embeddings": ["D33", "D34", "D36", "D38"],
+    "reducing hallucinations in language models": ["D35", "D39"],
+    "vocabulary mismatch synonyms": ["D6", "D17", "D33", "D36"],
+}
 
 TF_SCHEMES = ["Raw Term Frequency", "Normalized Term Frequency", "Log-Normalized Term Frequency"]
 IDF_SCHEMES = ["Standard IDF: log(N / df)", "Smoothed IDF: log(1 + N / df)"]
@@ -395,6 +429,45 @@ def run_retrieval(corpus: list, query: str, tf_scheme: str, idf_scheme: str, use
     }
 
 
+def evaluate_ranking(ranking: list, scores: list, relevant: set, k: int) -> dict:
+    """
+    Computes IR evaluation parameters for one ranked list against a set of relevant document indices.
+    Only documents with a score above zero count as retrieved.
+    """
+    retrieved = [i for i in ranking if scores[i] > 0]
+    top_k = retrieved[:k]
+    n_rel = len(relevant)
+    hits_k = sum(1 for i in top_k if i in relevant)
+
+    precision_k = hits_k / k if k else 0.0
+    recall_k = hits_k / n_rel if n_rel else 0.0
+    f1_k = (2 * precision_k * recall_k / (precision_k + recall_k)) if (precision_k + recall_k) else 0.0
+
+    # Precision and recall after each retrieved document, used for AP and the PR curve.
+    per_rank, hits, precisions_at_rel = [], 0, []
+    for rank, idx in enumerate(retrieved, start=1):
+        is_rel = idx in relevant
+        if is_rel:
+            hits += 1
+            precisions_at_rel.append(hits / rank)
+        per_rank.append({"rank": rank, "doc": idx, "relevant": is_rel,
+                         "precision": hits / rank, "recall": hits / n_rel if n_rel else 0.0})
+    avg_precision = sum(precisions_at_rel) / n_rel if n_rel else 0.0
+
+    first_rel = next((r["rank"] for r in per_rank if r["relevant"]), None)
+    reciprocal_rank = 1.0 / first_rel if first_rel else 0.0
+
+    dcg = sum(1.0 / math.log2(rank + 1) for rank, idx in enumerate(top_k, start=1) if idx in relevant)
+    idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, min(n_rel, k) + 1))
+    ndcg_k = dcg / idcg if idcg else 0.0
+
+    return {
+        "precision_k": precision_k, "recall_k": recall_k, "f1_k": f1_k,
+        "avg_precision": avg_precision, "reciprocal_rank": reciprocal_rank, "ndcg_k": ndcg_k,
+        "hits_k": hits_k, "n_retrieved": len(retrieved), "per_rank": per_rank
+    }
+
+
 # ======================================================================================
 # 3. LAB REPORT PDF EXPORTER
 # ======================================================================================
@@ -498,11 +571,14 @@ def generate_pdf_report(student_name: str, student_id: str, date_str: str,
         cols = list(trials_df.columns)
         # Relative widths: long text columns (query, schemes) get more room; cells wrap instead of truncating.
         width_weights = {"Trial #": 1.1, "Query": 3.8, "TF Scheme": 3.0, "IDF Scheme": 3.6,
-                         "Cosine Norm.": 1.4, "Top Doc": 1.2, "Top Score": 1.5, "Timestamp": 1.7}
+                         "Cosine Norm.": 1.4, "Top Doc": 1.2, "Top Score": 1.5, "k": 0.7,
+                         "P@k": 1.4, "R@k": 1.4, "F1@k": 1.4, "AP": 1.4, "nDCG@k": 1.5, "Timestamp": 1.7}
         col_widths = [width_weights.get(c, 2.0) for c in cols]
 
         def pdf_text(val) -> str:
-            if isinstance(val, (bool, np.bool_)):
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                text = "-"
+            elif isinstance(val, (bool, np.bool_)):
                 text = "Yes" if val else "No"
             elif isinstance(val, float):
                 text = f"{val:.4f}"
@@ -513,7 +589,7 @@ def generate_pdf_report(student_name: str, student_id: str, date_str: str,
             return text.encode("latin-1", "replace").decode("latin-1")
 
         pdf.set_text_color(30, 41, 59)
-        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_font("Helvetica", "", 7)
         with pdf.table(
             col_widths=col_widths,
             text_align="CENTER",
@@ -733,6 +809,15 @@ def render_corpus_upload():
         st.rerun()
 
 
+def _use_sample_query():
+    """Copies the picked sample query into the search box, then clears the pick."""
+    picked = st.session_state.get("sample_query_pick")
+    if picked:
+        st.session_state["query_text_input"] = picked
+        st.session_state["query_text"] = picked
+    st.session_state["sample_query_pick"] = None
+
+
 def render_simulation_section():
     """Renders Section 2: Interactive TF-IDF Retrieval Sandbox."""
     st.header("Simulation", icon=":material/manage_search:")
@@ -753,6 +838,10 @@ def render_simulation_section():
             icon=":material/search:", placeholder="e.g. TF-IDF document ranking"
         )
         st.session_state["query_text"] = query
+
+        if st.session_state["corpus_text"].strip() == "\n".join(DEFAULT_CORPUS):
+            st.pills("Sample queries with relevance judgments", options=list(SAMPLE_JUDGMENTS),
+                     key="sample_query_pick", on_change=_use_sample_query)
 
         with st.container(horizontal=True, vertical_alignment="bottom", gap="medium"):
             tf_label = st.segmented_control(
@@ -813,16 +902,17 @@ def render_simulation_section():
     score_label = "Cosine similarity" if use_cosine else "Dot product"
     max_score = max(result["scores"]) or 1.0
 
-    results_tab, chart_tab, heat_tab, matrix_tab = st.tabs([
+    results_tab, chart_tab, heat_tab, matrix_tab, eval_tab = st.tabs([
         ":material/format_list_numbered: Ranked results",
         ":material/bar_chart: Score chart",
         ":material/grid_on: Term heatmap",
         ":material/table: Matrices",
+        ":material/analytics: Evaluation",
     ])
 
     # --- Ranked results: search-result cards --------------------------------------------------
     with results_tab:
-        for rank, idx in enumerate(result["ranking"], start=1):
+        def result_card(rank: int, idx: int):
             score = result["scores"][idx]
             with st.container(border=True, gap="xsmall"):
                 with st.container(horizontal=True, vertical_alignment="center"):
@@ -836,8 +926,21 @@ def render_simulation_section():
                 st.markdown(highlight_terms(corpus[idx], query_terms))
                 st.progress(min(1.0, score / max_score) if score > 0 else 0.0)
 
+        ranked = list(enumerate(result["ranking"], start=1))
+        for rank, idx in ranked[:matched_docs]:
+            result_card(rank, idx)
+        # Unmatched documents all score 0; keep them out of the way on large corpora.
+        if matched_docs < len(corpus):
+            with st.expander(f"{len(corpus) - matched_docs} documents with no query term",
+                             icon=":material/visibility_off:"):
+                for rank, idx in ranked[matched_docs:]:
+                    result_card(rank, idx)
+
     with chart_tab:
-        order = result["ranking"]
+        # Only documents with a score above 0, capped so the chart stays readable on large corpora.
+        order = [i for i in result["ranking"] if result["scores"][i] > 0][:20] or result["ranking"][:20]
+        if len(order) < matched_docs:
+            st.caption(f"Showing the top {len(order)} of {matched_docs} matching documents.")
         fig = go.Figure(go.Bar(
             x=[result["scores"][i] for i in order][::-1],
             y=[doc_ids[i] for i in order][::-1],
@@ -847,7 +950,7 @@ def render_simulation_section():
             hovertext=[corpus[i] for i in order][::-1],
             hoverinfo="text+x",
         ))
-        fig.update_layout(height=max(280, 44 * len(corpus)), xaxis_title=score_label,
+        fig.update_layout(height=max(280, 36 * len(order)), xaxis_title=score_label,
                           margin=dict(l=10, r=40, t=10, b=10), showlegend=False)
         st.plotly_chart(fig, width="stretch", theme="streamlit")
 
@@ -858,14 +961,16 @@ def render_simulation_section():
         else:
             terms = sorted(vocab, key=lambda t: result["idf"][t], reverse=True)[:15]
             st.caption("No query terms matched. Showing the 15 rarest terms in the corpus instead.")
-        order = result["ranking"]
+        order = result["ranking"][:15]
+        if len(corpus) > len(order):
+            st.caption(f"Showing the top {len(order)} ranked documents of {len(corpus)}.")
         z = [[result["tfidf_matrix"][i][t] for t in terms] for i in order]
         heat = go.Figure(go.Heatmap(
             z=z, x=terms, y=[doc_ids[i] for i in order], texttemplate="%{z:.2f}",
             colorbar=dict(title="w"), hovertemplate="%{y} · %{x}<br>weight %{z:.4f}<extra></extra>"
         ))
         heat.update_yaxes(autorange="reversed")
-        heat.update_layout(height=max(280, 40 * len(corpus)), margin=dict(l=10, r=10, t=10, b=10))
+        heat.update_layout(height=max(280, 36 * len(order)), margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(heat, width="stretch", theme="streamlit")
 
     with matrix_tab:
@@ -886,6 +991,81 @@ def render_simulation_section():
         else:
             st.dataframe(pd.DataFrame(result["tfidf_matrix"], index=doc_ids, columns=vocab).round(4), width="stretch")
 
+    # --- Evaluation parameters ----------------------------------------------------------------
+    with eval_tab:
+        st.caption("Mark which documents are actually relevant to the query (your relevance judgments). "
+                   "Documents with a score above 0 count as retrieved.")
+        # Judgments belong to one query over one corpus, so each pair gets its own widget state.
+        judgment_key = "relevant_" + str(zlib.crc32(f"{query.strip().lower()}\n{st.session_state['corpus_text']}".encode()))
+        sample_judgment = SAMPLE_JUDGMENTS.get(query.strip(), []) if corpus == DEFAULT_CORPUS else []
+        if sample_judgment:
+            st.caption(":material/fact_check: Pre-filled with the sample judgments for this query. "
+                       "Adjust them if you disagree.")
+        c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+        with c1:
+            relevant_ids = st.multiselect(
+                "Relevant documents", options=doc_ids, default=sample_judgment,
+                key=judgment_key, placeholder="Choose the documents that answer the query"
+            )
+        with c2:
+            k = st.number_input("Cut-off k", min_value=1, max_value=len(corpus),
+                                value=min(5, len(corpus)), step=1, key="eval_k")
+
+        if relevant_ids:
+            evaluation = evaluate_ranking(result["ranking"], result["scores"],
+                                          {doc_ids.index(d) for d in relevant_ids}, k)
+        else:
+            evaluation = None
+            st.info("Select at least one relevant document to compute the evaluation parameters.",
+                    icon=":material/rule:")
+
+        if evaluation:
+            with st.container(horizontal=True, gap="small"):
+                st.metric(f"Precision@{k}", f"{evaluation['precision_k']:.3f}", border=True,
+                          help=f"{evaluation['hits_k']} relevant in the top {k} / {k}")
+                st.metric(f"Recall@{k}", f"{evaluation['recall_k']:.3f}", border=True,
+                          help=f"{evaluation['hits_k']} relevant in the top {k} / {len(relevant_ids)} relevant")
+                st.metric(f"F1@{k}", f"{evaluation['f1_k']:.3f}", border=True)
+            with st.container(horizontal=True, gap="small"):
+                st.metric("Average Precision", f"{evaluation['avg_precision']:.3f}", border=True,
+                          help="Mean precision at the rank of each relevant document (MAP over one query).")
+                st.metric("Reciprocal Rank", f"{evaluation['reciprocal_rank']:.3f}", border=True,
+                          help="1 / rank of the first relevant document (MRR over one query).")
+                st.metric(f"nDCG@{k}", f"{evaluation['ndcg_k']:.3f}", border=True)
+
+            if evaluation["per_rank"]:
+                left, right = st.columns(2, gap="large")
+                with left:
+                    st.markdown("**Precision and recall at each rank**")
+                    rank_df = pd.DataFrame([{
+                        "Rank": r["rank"], "Doc": doc_ids[r["doc"]], "Relevant": r["relevant"],
+                        "Precision": r["precision"], "Recall": r["recall"],
+                    } for r in evaluation["per_rank"]])
+                    st.dataframe(
+                        rank_df, hide_index=True, width="stretch",
+                        column_config={
+                            "Relevant": st.column_config.CheckboxColumn(),
+                            "Precision": st.column_config.NumberColumn(format="%.3f"),
+                            "Recall": st.column_config.NumberColumn(format="%.3f"),
+                        }
+                    )
+                with right:
+                    st.markdown("**Precision-recall curve**")
+                    pr = go.Figure(go.Scatter(
+                        x=[r["recall"] for r in evaluation["per_rank"]],
+                        y=[r["precision"] for r in evaluation["per_rank"]],
+                        mode="lines+markers", text=[doc_ids[r["doc"]] for r in evaluation["per_rank"]],
+                        hovertemplate="%{text}<br>recall %{x:.3f}<br>precision %{y:.3f}<extra></extra>",
+                    ))
+                    pr.update_layout(height=300, xaxis_title="Recall", yaxis_title="Precision",
+                                     xaxis_range=[0, 1.05], yaxis_range=[0, 1.05],
+                                     margin=dict(l=10, r=10, t=10, b=10))
+                    st.plotly_chart(pr, width="stretch", theme="streamlit")
+            missed = [d for d in relevant_ids if result["scores"][doc_ids.index(d)] == 0]
+            if missed:
+                st.caption("Relevant but never retrieved (score 0): " +
+                           " ".join(f":red-badge[{d}]" for d in missed))
+
     # --- Trial logger -------------------------------------------------------------------------
     st.subheader("Trial log", icon=":material/science:")
     with st.container(horizontal=True):
@@ -898,6 +1078,12 @@ def render_simulation_section():
                 "Cosine Norm.": use_cosine,
                 "Top Doc": doc_ids[top_idx],
                 "Top Score": round(result["scores"][top_idx], 4),
+                "k": k,
+                "P@k": round(evaluation["precision_k"], 4) if evaluation else None,
+                "R@k": round(evaluation["recall_k"], 4) if evaluation else None,
+                "F1@k": round(evaluation["f1_k"], 4) if evaluation else None,
+                "AP": round(evaluation["avg_precision"], 4) if evaluation else None,
+                "nDCG@k": round(evaluation["ndcg_k"], 4) if evaluation else None,
                 "Timestamp": datetime.now().strftime("%H:%M:%S")
             }
             st.session_state["trials"].append(trial_record)
@@ -916,6 +1102,8 @@ def render_simulation_section():
                 "Trial #": st.column_config.NumberColumn("#", width="small"),
                 "Cosine Norm.": st.column_config.CheckboxColumn("Cosine"),
                 "Top Score": st.column_config.NumberColumn(format="%.4f"),
+                **{c: st.column_config.NumberColumn(format="%.3f")
+                   for c in ("P@k", "R@k", "F1@k", "AP", "nDCG@k")},
             }
         )
         st.download_button(
