@@ -14,7 +14,6 @@ Note: No custom CSS is used so that Streamlit's native light and dark themes ren
 
 import re
 import math
-import zlib
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -429,45 +428,6 @@ def run_retrieval(corpus: list, query: str, tf_scheme: str, idf_scheme: str, use
     }
 
 
-def evaluate_ranking(ranking: list, scores: list, relevant: set, k: int) -> dict:
-    """
-    Computes IR evaluation parameters for one ranked list against a set of relevant document indices.
-    Only documents with a score above zero count as retrieved.
-    """
-    retrieved = [i for i in ranking if scores[i] > 0]
-    top_k = retrieved[:k]
-    n_rel = len(relevant)
-    hits_k = sum(1 for i in top_k if i in relevant)
-
-    precision_k = hits_k / k if k else 0.0
-    recall_k = hits_k / n_rel if n_rel else 0.0
-    f1_k = (2 * precision_k * recall_k / (precision_k + recall_k)) if (precision_k + recall_k) else 0.0
-
-    # Precision and recall after each retrieved document, used for AP and the PR curve.
-    per_rank, hits, precisions_at_rel = [], 0, []
-    for rank, idx in enumerate(retrieved, start=1):
-        is_rel = idx in relevant
-        if is_rel:
-            hits += 1
-            precisions_at_rel.append(hits / rank)
-        per_rank.append({"rank": rank, "doc": idx, "relevant": is_rel,
-                         "precision": hits / rank, "recall": hits / n_rel if n_rel else 0.0})
-    avg_precision = sum(precisions_at_rel) / n_rel if n_rel else 0.0
-
-    first_rel = next((r["rank"] for r in per_rank if r["relevant"]), None)
-    reciprocal_rank = 1.0 / first_rel if first_rel else 0.0
-
-    dcg = sum(1.0 / math.log2(rank + 1) for rank, idx in enumerate(top_k, start=1) if idx in relevant)
-    idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, min(n_rel, k) + 1))
-    ndcg_k = dcg / idcg if idcg else 0.0
-
-    return {
-        "precision_k": precision_k, "recall_k": recall_k, "f1_k": f1_k,
-        "avg_precision": avg_precision, "reciprocal_rank": reciprocal_rank, "ndcg_k": ndcg_k,
-        "hits_k": hits_k, "n_retrieved": len(retrieved), "per_rank": per_rank
-    }
-
-
 # ======================================================================================
 # 3. LAB REPORT PDF EXPORTER
 # ======================================================================================
@@ -734,21 +694,6 @@ def render_theory_references():
         st.markdown(f"- {ref}")
 
 
-def _decode_upload(file) -> str:
-    raw = file.getvalue()
-    for encoding in ("utf-8-sig", "cp1252"):
-        try:
-            return raw.decode(encoding)
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("latin-1")
-
-
-def _one_line(text: str) -> str:
-    """The corpus is line-based, so a document's own line breaks are collapsed to spaces."""
-    return " ".join(str(text).split())
-
-
 def set_corpus_text(text: str, query: str | None = None):
     """Queues new corpus (and optionally query) text for the widgets.
 
@@ -763,83 +708,35 @@ def set_corpus_text(text: str, query: str | None = None):
         st.session_state["pending_query_text"] = query
 
 
-def render_corpus_upload():
-    """File uploader that replaces the corpus with documents read from .txt, .md or .csv files."""
-    uploader_key = f"corpus_upload_{st.session_state.get('corpus_upload_nonce', 0)}"
-    files = st.file_uploader(
-        "Upload documents", type=["txt", "md", "csv"], accept_multiple_files=True, key=uploader_key,
-        help="One .txt/.md file: each non-empty line is a document. Several .txt/.md files: each file is "
-             "one document. .csv: each row of the chosen column is a document."
-    )
-    if not files:
-        return
-
-    docs, sources = [], []
-    csv_files = [f for f in files if f.name.lower().endswith(".csv")]
-    text_files = [f for f in files if not f.name.lower().endswith(".csv")]
-
-    if len(text_files) == 1:
-        lines = [_one_line(line) for line in _decode_upload(text_files[0]).splitlines()]
-        new = [line for line in lines if line]
-        docs += new
-        sources.append(f"{text_files[0].name} ({len(new)} lines)")
-    else:
-        for f in text_files:
-            doc = _one_line(_decode_upload(f))
-            if doc:
-                docs.append(doc)
-        if text_files:
-            sources.append(f"{len(text_files)} text files")
-
-    for f in csv_files:
-        try:
-            df = pd.read_csv(f, encoding_errors="replace")
-        except Exception as exc:
-            st.error(f"Could not read {f.name}: {exc}", icon=":material/error:")
-            continue
-        text_cols = [c for c in df.columns if not pd.api.types.is_numeric_dtype(df[c])] or list(df.columns)
-        if not text_cols:
-            st.warning(f"{f.name} has no columns.", icon=":material/warning:")
-            continue
-        preferred = next((c for c in text_cols if str(c).strip().lower()
-                          in {"text", "document", "doc", "content", "body"}), text_cols[0])
-        col = st.selectbox(f"Text column in {f.name}", text_cols, index=text_cols.index(preferred),
-                           key=f"{uploader_key}_{f.name}_col")
-        new = [d for d in (_one_line(v) for v in df[col].dropna()) if d]
-        docs += new
-        sources.append(f"{f.name} ({len(new)} rows)")
-
-    if not docs:
-        st.warning("No text found in the uploaded files.", icon=":material/warning:")
-        return
-
-    st.caption(f"Found **{len(docs)} documents** in " + ", ".join(sources) + ".")
-    with st.container(horizontal=True):
-        replace = st.button("Replace corpus", type="primary", icon=":material/upload_file:")
-        append = st.button("Add to corpus", icon=":material/playlist_add:")
-    if replace or append:
-        existing = st.session_state["corpus_text"].strip() if append else ""
-        set_corpus_text("\n".join(([existing] if existing else []) + docs))
-        st.session_state["corpus_upload_nonce"] = st.session_state.get("corpus_upload_nonce", 0) + 1
-        st.session_state["corpus_expanded"] = True
-        st.toast(f"{'Added' if append else 'Loaded'} {len(docs)} documents", icon=":material/check_circle:")
-        st.rerun()
+CUSTOM_QUERY_OPTION = "Type your own..."
 
 
 def _use_sample_query():
-    """Copies the picked sample query into the search box, then clears the pick."""
+    """Copies the selected sample query into the search box."""
     picked = st.session_state.get("sample_query_pick")
-    if picked:
+    if picked and picked != CUSTOM_QUERY_OPTION:
         st.session_state["query_text_input"] = picked
         st.session_state["query_text"] = picked
-    st.session_state["sample_query_pick"] = None
+
+
+ANIMATION_STEPS = [
+    ("Tokenize", "Tokenize & build vocabulary", ":material/splitscreen:"),
+    ("TF matrix", "Term frequency (TF) matrix", ":material/table_rows:"),
+    ("DF & IDF", "Document frequency & IDF", ":material/query_stats:"),
+    ("TF x IDF", "TF x IDF matrix", ":material/grid_on:"),
+    ("Query vector", "Query vector", ":material/search:"),
+    ("Scoring", "Similarity scoring", ":material/calculate:"),
+    ("Ranking", "Rank documents", ":material/sort:"),
+    ("Top-k", "Top-k results", ":material/emoji_events:"),
+]
+ANIMATION_INTERVAL = "1.4s"
 
 
 def render_simulation_section():
-    """Renders Section 2: Interactive TF-IDF Retrieval Sandbox."""
+    """Renders Section 2: a step-by-step walk-through of the TF-IDF pipeline for one query."""
     st.header("Simulation", icon=":material/manage_search:")
-    st.caption("Search the corpus, change the weighting scheme, and watch the ranking respond. "
-               "Record each configuration you want in your report.")
+    st.caption("Set a query and a weighting scheme, then step through the pipeline to watch TF-IDF build "
+               "the term-document matrix, weight it by IDF, score it against your query, and rank the results.")
 
     # --- Controls ---------------------------------------------------------------------------
     if "pending_corpus_text" in st.session_state:
@@ -849,16 +746,24 @@ def render_simulation_section():
     st.session_state.setdefault("corpus_text_area", st.session_state["corpus_text"])
     st.session_state.setdefault("query_text_input", st.session_state["query_text"])
 
-    with st.container(border=True):
-        query = st.text_input(
-            "Search query", key="query_text_input",
-            icon=":material/search:", placeholder="e.g. TF-IDF document ranking"
-        )
-        st.session_state["query_text"] = query
+    corpus_preview = [line.strip() for line in st.session_state["corpus_text"].split("\n") if line.strip()]
 
-        if st.session_state["corpus_text"].strip() == "\n".join(DEFAULT_CORPUS):
-            st.pills("Sample queries with relevance judgments", options=list(SAMPLE_JUDGMENTS),
-                     key="sample_query_pick", on_change=_use_sample_query)
+    with st.container(border=True):
+        is_default_corpus = st.session_state["corpus_text"].strip() == "\n".join(DEFAULT_CORPUS)
+        query_col, sample_col = st.columns([3, 2], vertical_alignment="bottom")
+        with query_col:
+            query = st.text_input(
+                "Search query", key="query_text_input",
+                icon=":material/search:", placeholder="e.g. TF-IDF document ranking"
+            )
+        with sample_col:
+            if is_default_corpus:
+                st.selectbox(
+                    "Sample queries", options=[CUSTOM_QUERY_OPTION] + list(SAMPLE_JUDGMENTS),
+                    key="sample_query_pick", on_change=_use_sample_query,
+                    help="Pick one of the sample queries the corpus was written around."
+                )
+        st.session_state["query_text"] = query
 
         with st.container(horizontal=True, vertical_alignment="bottom", gap="medium"):
             tf_label = st.segmented_control(
@@ -872,11 +777,15 @@ def render_simulation_section():
             )
             use_cosine = st.toggle("Cosine normalization", value=True, key="use_cosine",
                                    help="Off = raw dot product, which favors longer documents.")
+            top_k = st.number_input(
+                "Top-k results", min_value=1, max_value=max(1, len(corpus_preview)),
+                value=min(5, max(1, len(corpus_preview))), step=1, key="top_k",
+                help="How many top-ranked documents the animation reveals at the end."
+            )
         tf_scheme, idf_scheme = tf_label, idf_label
 
         with st.expander("Edit document corpus", icon=":material/edit_note:",
                          expanded=st.session_state.pop("corpus_expanded", False)):
-            render_corpus_upload()
             corpus_text = st.text_area(
                 "One document per line", height=200, key="corpus_text_area"
             )
@@ -888,48 +797,207 @@ def render_simulation_section():
 
     corpus = [line.strip() for line in st.session_state["corpus_text"].split("\n") if line.strip()]
     if len(corpus) < 2:
-        st.warning("Add at least two documents to run retrieval: type them one per line, or upload a file "
-                   "and click Replace corpus.",
+        st.warning("Add at least two documents to run retrieval: type them one per line.",
                    icon=":material/warning:")
         return
     if not query.strip():
-        st.info("Type a search query to rank the documents.", icon=":material/search:")
+        st.info("Type a search query to run the TF-IDF pipeline.", icon=":material/search:")
         return
 
     result = run_retrieval(corpus, query, tf_scheme, idf_scheme, use_cosine)
-    vocab = result["vocab"]
     doc_ids = [f"D{i + 1}" for i in range(len(corpus))]
+    top_k = min(top_k, len(corpus))
+
+    # Reset to the first step whenever the underlying pipeline configuration changes, so the
+    # walk-through never shows a stale step for a different query/corpus/scheme combination.
+    fingerprint = (tuple(corpus), query.strip(), tf_scheme, idf_scheme, use_cosine, top_k)
+    if st.session_state["anim_fingerprint"] != fingerprint:
+        st.session_state["anim_fingerprint"] = fingerprint
+        st.session_state["anim_step"] = 0
+        st.session_state["anim_playing"] = False
+
+    ctx = {
+        "corpus": corpus, "doc_ids": doc_ids, "query": query, "result": result,
+        "tf_scheme": tf_scheme, "idf_scheme": idf_scheme, "use_cosine": use_cosine, "top_k": top_k,
+    }
+
+    step = st.session_state["anim_step"]
+    n = len(ANIMATION_STEPS)
+
+    _render_animation_controls(step, n)
+    _render_animation_display(ctx, n)
+
+
+def _inject_step_transition_css():
+    st.html("""
+        <style>
+        @keyframes tfidf-step-in {
+            from { opacity: 0; transform: translateY(10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        div[class*="st-key-anim_step_card_"] {
+            animation: tfidf-step-in 0.35s ease-out;
+        }
+        </style>
+    """)
+
+
+def _render_animation_controls(step: int, n: int):
+    """Previous/Play-Pause/Next/Reset. Lives outside the fragment below so every click triggers
+    a full rerun, which is required to change the fragment's `run_every` interval."""
+    playing = st.session_state["anim_playing"]
+    at_end = step >= n - 1
+
+    with st.container(horizontal=True, gap="small", vertical_alignment="center"):
+        if st.button("Previous", icon=":material/chevron_left:", disabled=step <= 0):
+            st.session_state["anim_step"] = step - 1
+            st.session_state["anim_playing"] = False
+            st.rerun()
+
+        if playing:
+            if st.button("Pause", icon=":material/pause:", type="primary"):
+                st.session_state["anim_playing"] = False
+                st.rerun()
+        else:
+            if st.button("Replay" if at_end else "Play",
+                        icon=":material/replay:" if at_end else ":material/play_arrow:",
+                        type="primary"):
+                if at_end:
+                    st.session_state["anim_step"] = 0
+                st.session_state["anim_playing"] = True
+                st.rerun()
+
+        if st.button("Next", icon=":material/chevron_right:", disabled=step >= n - 1):
+            st.session_state["anim_step"] = step + 1
+            st.session_state["anim_playing"] = False
+            st.rerun()
+
+        if st.button("Reset", icon=":material/restart_alt:", disabled=step == 0 and not playing):
+            st.session_state["anim_step"] = 0
+            st.session_state["anim_playing"] = False
+            st.rerun()
+
+
+def _render_animation_display(ctx: dict, n: int):
+    # run_every is read fresh on every full rerun (this whole entrypoint file re-executes each
+    # time), so toggling "anim_playing" via the controls above changes the interval on the very
+    # next run: None when paused, a fixed delay while playing.
+    interval = ANIMATION_INTERVAL if st.session_state["anim_playing"] else None
+
+    @st.fragment(run_every=interval)
+    def _fragment():
+        step = st.session_state["anim_step"]
+        _, title, icon = ANIMATION_STEPS[step]
+
+        st.progress((step + 1) / n, text=f"Step {step + 1} of {n}: **{title}**")
+
+        _inject_step_transition_css()
+        # Keying the card by step forces Streamlit to remount it (rather than patch its
+        # children) whenever the step changes, which is what replays the CSS fade/slide.
+        with st.container(border=True, key=f"anim_step_card_{step}"):
+            st.subheader(title, icon=icon)
+            _render_animation_step(step, ctx)
+
+        if st.session_state["anim_playing"]:
+            if step < n - 1:
+                st.session_state["anim_step"] = step + 1
+            else:
+                # Reached the end: stop, and force a full rerun so the controls/fragment above
+                # are redefined with run_every=None on their next render (a fragment-scoped
+                # rerun can't change its own run_every).
+                st.session_state["anim_playing"] = False
+                st.rerun()
+
+    _fragment()
+
+
+def _render_animation_step(step: int, ctx: dict):
+    corpus, doc_ids, query = ctx["corpus"], ctx["doc_ids"], ctx["query"]
+    result, tf_scheme, idf_scheme = ctx["result"], ctx["tf_scheme"], ctx["idf_scheme"]
+    use_cosine, top_k = ctx["use_cosine"], ctx["top_k"]
+    vocab = result["vocab"]
     query_terms = set(result["query_tokens"])
-    top_idx = result["ranking"][0]
-    matched_docs = sum(1 for s in result["scores"] if s > 0)
 
-    # --- Summary strip ------------------------------------------------------------------------
-    with st.container(horizontal=True, gap="small"):
-        st.metric("Documents", len(corpus), border=True)
-        st.metric("Vocabulary", len(vocab), border=True)
-        st.metric("Query terms matched", f"{len(query_terms)} / {len(set(tokenize(query)))}", border=True)
-        st.metric("Documents with a match", matched_docs, border=True)
+    if step == 0:  # Tokenize & build vocabulary
+        st.markdown("Every document (and the query) is lower-cased, stripped of punctuation, and filtered "
+                    "through a stop-word list. The vocabulary is the set of unique terms left in the corpus.")
+        tok_df = pd.DataFrame([
+            {"Doc": doc_ids[i], "Tokens": ", ".join(tokenize(corpus[i])) or "_(none)_"}
+            for i in range(len(corpus))
+        ])
+        st.dataframe(tok_df, hide_index=True, width="stretch")
+        query_tokens_all = tokenize(query)
+        if query_tokens_all:
+            st.markdown("**Query tokens:** " + " ".join(
+                f":green-badge[{t}]" if t in query_terms else f":gray-badge[{t} (out of vocabulary)]"
+                for t in query_tokens_all
+            ))
+        st.caption(f"Vocabulary: **{len(vocab)}** unique terms across **{len(corpus)}** documents.")
 
-    if result["oov_terms"]:
-        st.caption("Not in corpus, ignored: " + " ".join(f":gray-badge[{t}]" for t in result["oov_terms"]))
-    if not query_terms:
-        st.warning("None of the query terms appear in the corpus, so every score is 0. "
-                   "Try another query or edit the corpus.", icon=":material/search_off:")
+    elif step == 1:  # TF matrix
+        st.markdown(f"Term frequency ({TF_SHORT[tf_scheme].lower()}) counts how often each term occurs "
+                    "in each document — one row per document, one column per vocabulary term.")
+        tf_df = pd.DataFrame(result["tf_matrix"], index=doc_ids, columns=vocab).round(3)
+        st.dataframe(tf_df, width="stretch")
 
-    score_label = "Cosine similarity" if use_cosine else "Dot product"
-    max_score = max(result["scores"]) or 1.0
+    elif step == 2:  # DF & IDF
+        st.markdown(f"Document frequency (df) counts how many documents contain each term. "
+                    f"IDF ({IDF_SHORT[idf_scheme]}) then down-weights terms that appear in many documents.")
+        idf_df = pd.DataFrame([{"Term": t, "df": result["df"][t], "IDF": result["idf"][t]} for t in vocab])
+        idf_df = idf_df.sort_values("IDF", ascending=False)
+        st.dataframe(
+            idf_df, hide_index=True, width="stretch",
+            column_config={"IDF": st.column_config.ProgressColumn(
+                "IDF", format="%.4f", min_value=0.0, max_value=float(idf_df["IDF"].max() or 1.0))}
+        )
 
-    results_tab, chart_tab, heat_tab, matrix_tab, eval_tab = st.tabs([
-        ":material/format_list_numbered: Ranked results",
-        ":material/bar_chart: Score chart",
-        ":material/grid_on: Term heatmap",
-        ":material/table: Matrices",
-        ":material/analytics: Evaluation",
-    ])
+    elif step == 3:  # TF-IDF matrix
+        st.latex(r"w_{t,d} = \mathrm{tf}_{t,d} \times \mathrm{idf}_t")
+        st.markdown("Multiplying the TF matrix by the IDF vector (broadcast across every document) gives "
+                    "the TF-IDF weight matrix: high where a term is frequent here but rare elsewhere.")
+        tfidf_df = pd.DataFrame(result["tfidf_matrix"], index=doc_ids, columns=vocab).round(4)
+        st.dataframe(tfidf_df, width="stretch")
 
-    # --- Ranked results: search-result cards --------------------------------------------------
-    with results_tab:
-        def result_card(rank: int, idx: int):
+    elif step == 4:  # Query vector
+        st.markdown("The query is tokenized the same way, then projected into the same TF-IDF space using "
+                    "the corpus's IDF values.")
+        if query_terms:
+            query_tf = compute_tf(result["query_tokens"], vocab, tf_scheme)
+            q_df = pd.DataFrame([
+                {"Term": t, "TF": query_tf[t], "IDF": result["idf"][t], "Weight": result["query_tfidf"][t]}
+                for t in sorted(query_terms)
+            ])
+            st.dataframe(q_df.round(4), hide_index=True, width="stretch")
+        else:
+            st.warning("None of the query terms appear in the corpus, so the query vector is all zeros.",
+                      icon=":material/search_off:")
+
+    elif step == 5:  # Similarity scoring
+        score_label = "Cosine similarity" if use_cosine else "Dot product"
+        st.markdown(f"Each document vector is compared against the query vector using **{score_label}**.")
+        fig = go.Figure(go.Bar(
+            x=doc_ids, y=result["scores"],
+            text=[f"{s:.3f}" for s in result["scores"]], textposition="outside",
+        ))
+        fig.update_layout(height=340, yaxis_title=score_label, showlegend=False,
+                          margin=dict(l=10, r=10, t=20, b=10))
+        st.plotly_chart(fig, width="stretch", theme="streamlit")
+
+    elif step == 6:  # Ranking
+        st.markdown("Documents are sorted in descending order of similarity score.")
+        rank_df = pd.DataFrame([
+            {"Rank": r, "Doc": doc_ids[i], "Score": result["scores"][i]}
+            for r, i in enumerate(result["ranking"], start=1)
+        ])
+        st.dataframe(
+            rank_df, hide_index=True, width="stretch",
+            column_config={"Score": st.column_config.NumberColumn(format="%.4f")}
+        )
+
+    else:  # Top-k results
+        st.markdown(f"The **top {top_k}** ranked documents for this query.")
+        max_score = max(result["scores"]) or 1.0
+        for rank, idx in enumerate(result["ranking"][:top_k], start=1):
             score = result["scores"][idx]
             with st.container(border=True, gap="xsmall"):
                 with st.container(horizontal=True, vertical_alignment="center"):
@@ -942,193 +1010,6 @@ def render_simulation_section():
                     st.markdown(f"`{score:.4f}`")
                 st.markdown(highlight_terms(corpus[idx], query_terms))
                 st.progress(min(1.0, score / max_score) if score > 0 else 0.0)
-
-        ranked = list(enumerate(result["ranking"], start=1))
-        for rank, idx in ranked[:matched_docs]:
-            result_card(rank, idx)
-        # Unmatched documents all score 0; keep them out of the way on large corpora.
-        if matched_docs < len(corpus):
-            with st.expander(f"{len(corpus) - matched_docs} documents with no query term",
-                             icon=":material/visibility_off:"):
-                for rank, idx in ranked[matched_docs:]:
-                    result_card(rank, idx)
-
-    with chart_tab:
-        # Only documents with a score above 0, capped so the chart stays readable on large corpora.
-        order = [i for i in result["ranking"] if result["scores"][i] > 0][:20] or result["ranking"][:20]
-        if len(order) < matched_docs:
-            st.caption(f"Showing the top {len(order)} of {matched_docs} matching documents.")
-        fig = go.Figure(go.Bar(
-            x=[result["scores"][i] for i in order][::-1],
-            y=[doc_ids[i] for i in order][::-1],
-            orientation="h",
-            text=[f"{result['scores'][i]:.3f}" for i in order][::-1],
-            textposition="outside",
-            hovertext=[corpus[i] for i in order][::-1],
-            hoverinfo="text+x",
-        ))
-        fig.update_layout(height=max(280, 36 * len(order)), xaxis_title=score_label,
-                          margin=dict(l=10, r=40, t=10, b=10), showlegend=False)
-        st.plotly_chart(fig, width="stretch", theme="streamlit")
-
-    with heat_tab:
-        if query_terms:
-            terms = sorted(query_terms)
-            st.caption("TF-IDF weight of each query term in each document. Rows follow the ranking.")
-        else:
-            terms = sorted(vocab, key=lambda t: result["idf"][t], reverse=True)[:15]
-            st.caption("No query terms matched. Showing the 15 rarest terms in the corpus instead.")
-        order = result["ranking"][:15]
-        if len(corpus) > len(order):
-            st.caption(f"Showing the top {len(order)} ranked documents of {len(corpus)}.")
-        z = [[result["tfidf_matrix"][i][t] for t in terms] for i in order]
-        heat = go.Figure(go.Heatmap(
-            z=z, x=terms, y=[doc_ids[i] for i in order], texttemplate="%{z:.2f}",
-            colorbar=dict(title="w"), hovertemplate="%{y} · %{x}<br>weight %{z:.4f}<extra></extra>"
-        ))
-        heat.update_yaxes(autorange="reversed")
-        heat.update_layout(height=max(280, 36 * len(order)), margin=dict(l=10, r=10, t=10, b=10))
-        st.plotly_chart(heat, width="stretch", theme="streamlit")
-
-    with matrix_tab:
-        which = st.segmented_control(
-            "Matrix", options=["TF", "IDF", "TF-IDF"], default="TF-IDF",
-            key="matrix_view", required=True, label_visibility="collapsed"
-        )
-        if which == "TF":
-            st.caption(f"Term frequency ({TF_SHORT[tf_scheme].lower()}), {len(vocab)} terms.")
-            st.dataframe(pd.DataFrame(result["tf_matrix"], index=doc_ids, columns=vocab).round(3), width="stretch")
-        elif which == "IDF":
-            idf_df = pd.DataFrame([{"Term": t, "df": result["df"][t], "IDF": result["idf"][t]} for t in vocab])
-            st.dataframe(
-                idf_df.sort_values("IDF", ascending=False), hide_index=True, width="stretch",
-                column_config={"IDF": st.column_config.ProgressColumn(
-                    "IDF", format="%.4f", min_value=0.0, max_value=float(idf_df["IDF"].max() or 1.0))}
-            )
-        else:
-            st.dataframe(pd.DataFrame(result["tfidf_matrix"], index=doc_ids, columns=vocab).round(4), width="stretch")
-
-    # --- Evaluation parameters ----------------------------------------------------------------
-    with eval_tab:
-        st.caption("Mark which documents are actually relevant to the query (your relevance judgments). "
-                   "Documents with a score above 0 count as retrieved.")
-        # Judgments belong to one query over one corpus, so each pair gets its own widget state.
-        judgment_key = "relevant_" + str(zlib.crc32(f"{query.strip().lower()}\n{st.session_state['corpus_text']}".encode()))
-        sample_judgment = SAMPLE_JUDGMENTS.get(query.strip(), []) if corpus == DEFAULT_CORPUS else []
-        if sample_judgment:
-            st.caption(":material/fact_check: Pre-filled with the sample judgments for this query. "
-                       "Adjust them if you disagree.")
-        c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
-        with c1:
-            relevant_ids = st.multiselect(
-                "Relevant documents", options=doc_ids, default=sample_judgment,
-                key=judgment_key, placeholder="Choose the documents that answer the query"
-            )
-        with c2:
-            k = st.number_input("Cut-off k", min_value=1, max_value=len(corpus),
-                                value=min(5, len(corpus)), step=1, key="eval_k")
-
-        if relevant_ids:
-            evaluation = evaluate_ranking(result["ranking"], result["scores"],
-                                          {doc_ids.index(d) for d in relevant_ids}, k)
-        else:
-            evaluation = None
-            st.info("Select at least one relevant document to compute the evaluation parameters.",
-                    icon=":material/rule:")
-
-        if evaluation:
-            with st.container(horizontal=True, gap="small"):
-                st.metric(f"Precision@{k}", f"{evaluation['precision_k']:.3f}", border=True,
-                          help=f"{evaluation['hits_k']} relevant in the top {k} / {k}")
-                st.metric(f"Recall@{k}", f"{evaluation['recall_k']:.3f}", border=True,
-                          help=f"{evaluation['hits_k']} relevant in the top {k} / {len(relevant_ids)} relevant")
-                st.metric(f"F1@{k}", f"{evaluation['f1_k']:.3f}", border=True)
-            with st.container(horizontal=True, gap="small"):
-                st.metric("Average Precision", f"{evaluation['avg_precision']:.3f}", border=True,
-                          help="Mean precision at the rank of each relevant document (MAP over one query).")
-                st.metric("Reciprocal Rank", f"{evaluation['reciprocal_rank']:.3f}", border=True,
-                          help="1 / rank of the first relevant document (MRR over one query).")
-                st.metric(f"nDCG@{k}", f"{evaluation['ndcg_k']:.3f}", border=True)
-
-            if evaluation["per_rank"]:
-                left, right = st.columns(2, gap="large")
-                with left:
-                    st.markdown("**Precision and recall at each rank**")
-                    rank_df = pd.DataFrame([{
-                        "Rank": r["rank"], "Doc": doc_ids[r["doc"]], "Relevant": r["relevant"],
-                        "Precision": r["precision"], "Recall": r["recall"],
-                    } for r in evaluation["per_rank"]])
-                    st.dataframe(
-                        rank_df, hide_index=True, width="stretch",
-                        column_config={
-                            "Relevant": st.column_config.CheckboxColumn(),
-                            "Precision": st.column_config.NumberColumn(format="%.3f"),
-                            "Recall": st.column_config.NumberColumn(format="%.3f"),
-                        }
-                    )
-                with right:
-                    st.markdown("**Precision-recall curve**")
-                    pr = go.Figure(go.Scatter(
-                        x=[r["recall"] for r in evaluation["per_rank"]],
-                        y=[r["precision"] for r in evaluation["per_rank"]],
-                        mode="lines+markers", text=[doc_ids[r["doc"]] for r in evaluation["per_rank"]],
-                        hovertemplate="%{text}<br>recall %{x:.3f}<br>precision %{y:.3f}<extra></extra>",
-                    ))
-                    pr.update_layout(height=300, xaxis_title="Recall", yaxis_title="Precision",
-                                     xaxis_range=[0, 1.05], yaxis_range=[0, 1.05],
-                                     margin=dict(l=10, r=10, t=10, b=10))
-                    st.plotly_chart(pr, width="stretch", theme="streamlit")
-            missed = [d for d in relevant_ids if result["scores"][doc_ids.index(d)] == 0]
-            if missed:
-                st.caption("Relevant but never retrieved (score 0): " +
-                           " ".join(f":red-badge[{d}]" for d in missed))
-
-    # --- Trial logger -------------------------------------------------------------------------
-    st.subheader("Trial log", icon=":material/science:")
-    with st.container(horizontal=True):
-        if st.button("Record this trial", type="primary", icon=":material/add_circle:"):
-            trial_record = {
-                "Trial #": len(st.session_state["trials"]) + 1,
-                "Query": query,
-                "TF Scheme": tf_scheme,
-                "IDF Scheme": idf_scheme,
-                "Cosine Norm.": use_cosine,
-                "Top Doc": doc_ids[top_idx],
-                "Top Score": round(result["scores"][top_idx], 4),
-                "k": k,
-                "P@k": round(evaluation["precision_k"], 4) if evaluation else None,
-                "R@k": round(evaluation["recall_k"], 4) if evaluation else None,
-                "F1@k": round(evaluation["f1_k"], 4) if evaluation else None,
-                "AP": round(evaluation["avg_precision"], 4) if evaluation else None,
-                "nDCG@k": round(evaluation["ndcg_k"], 4) if evaluation else None,
-                "Timestamp": datetime.now().strftime("%H:%M:%S")
-            }
-            st.session_state["trials"].append(trial_record)
-            st.toast(f"Trial {trial_record['Trial #']} recorded", icon=":material/check_circle:")
-        if st.session_state["trials"]:
-            if st.button("Clear log", icon=":material/delete_sweep:"):
-                st.session_state["trials"] = []
-                st.toast("Trial log cleared")
-                st.rerun()
-
-    if st.session_state["trials"]:
-        df_trials = pd.DataFrame(st.session_state["trials"])
-        st.dataframe(
-            df_trials, width="stretch", hide_index=True,
-            column_config={
-                "Trial #": st.column_config.NumberColumn("#", width="small"),
-                "Cosine Norm.": st.column_config.CheckboxColumn("Cosine"),
-                "Top Score": st.column_config.NumberColumn(format="%.4f"),
-                **{c: st.column_config.NumberColumn(format="%.3f")
-                   for c in ("P@k", "R@k", "F1@k", "AP", "nDCG@k")},
-            }
-        )
-        st.download_button(
-            "Download trials (CSV)", data=df_trials.to_csv(index=False).encode("utf-8"),
-            file_name="tfidf_experiment_trials.csv", mime="text/csv", icon=":material/download:"
-        )
-    else:
-        st.caption("No trials yet. Aim for 3-4 with different queries and weighting schemes.")
 
 
 def render_quiz_section():
@@ -1282,6 +1163,12 @@ def init_session_state():
         st.session_state["corpus_text"] = "\n".join(DEFAULT_CORPUS)
     if "query_text" not in st.session_state:
         st.session_state["query_text"] = DEFAULT_QUERY
+    if "anim_step" not in st.session_state:
+        st.session_state["anim_step"] = 0
+    if "anim_playing" not in st.session_state:
+        st.session_state["anim_playing"] = False
+    if "anim_fingerprint" not in st.session_state:
+        st.session_state["anim_fingerprint"] = None
 
 
 def render_sidebar_header():
