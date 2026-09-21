@@ -2053,6 +2053,269 @@ def _use_sample_query():
         st.session_state["query_text"] = picked
 
 
+
+SIMULATION_VISUAL_CSS = """
+<style>
+/* --- Simulation-only visual polish: richer graph-palette colors, no layout/functionality changes --- */
+div[class*="st-key-sim_hero_"] {
+    background:
+        radial-gradient(circle at 8% 18%, rgba(42,154,164,.24), transparent 34%),
+        radial-gradient(circle at 92% 12%, rgba(224,146,58,.20), transparent 30%),
+        radial-gradient(circle at 52% 100%, rgba(108,99,255,.12), transparent 32%),
+        linear-gradient(135deg, rgba(42,154,164,.12), rgba(255,255,255,.02));
+    border: 1px solid rgba(42,154,164,.38);
+    border-radius: 18px;
+    padding: 1rem 1.1rem .9rem;
+    margin: .25rem 0 1rem;
+    box-shadow: 0 10px 30px rgba(42,154,164,.10), 0 4px 18px rgba(108,99,255,.06);
+    animation: tfidf-soft-glow 3.8s ease-in-out infinite alternate;
+}
+@keyframes tfidf-soft-glow {
+    from { box-shadow: 0 8px 24px rgba(42,154,164,.08), 0 3px 14px rgba(91,143,249,.05); }
+    to   { box-shadow: 0 12px 34px rgba(224,146,58,.14), 0 5px 20px rgba(108,99,255,.08); }
+}
+div[class*="st-key-sim_hero_"]::after {
+    content: "";
+    position: absolute;
+    width: 110px;
+    height: 110px;
+    right: 7%;
+    top: 2px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle, rgba(91,192,190,.22), rgba(91,143,249,.10) 42%,
+        rgba(224,146,58,.05) 62%, transparent 74%);
+    pointer-events: none;
+    animation: tfidf-orb-drift 5s ease-in-out infinite alternate;
+}
+@keyframes tfidf-orb-drift {
+    from { transform: translate3d(0, 2px, 0) scale(.92); opacity: .65; }
+    to   { transform: translate3d(-14px, 10px, 0) scale(1.08); opacity: 1; }
+}
+
+/* Pipeline pills use the same palette as the similarity graph. */
+div[class*="st-key-sim_pipeline_"] .sim_step_pill {
+    display: inline-block;
+    position: relative;
+    overflow: hidden;
+    border-radius: 999px;
+    border: 1px solid rgba(42,154,164,.30);
+    background:
+        linear-gradient(135deg, rgba(42,154,164,.15), rgba(91,143,249,.08) 48%, rgba(224,146,58,.10));
+    padding: .30rem .68rem;
+    font-size: .78rem;
+    font-weight: 650;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+div[class*="st-key-sim_pipeline_"] .sim_step_pill::after {
+    content: "";
+    position: absolute;
+    left: 10%;
+    right: 10%;
+    bottom: 0;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #5B8FF9, #2A9AA4, #6C63FF, #E0923A, #D95F8A, #4CAF7D);
+    opacity: .72;
+}
+div[class*="st-key-sim_pipeline_"] .sim_step_pill:hover {
+    transform: translateY(-2px);
+    border-color: rgba(224,146,58,.55);
+    background:
+        linear-gradient(135deg, rgba(42,154,164,.20), rgba(108,99,255,.12), rgba(224,146,58,.14));
+    box-shadow: 0 6px 18px rgba(42,154,164,.14), 0 3px 12px rgba(108,99,255,.08);
+}
+div[class*="st-key-sim_pipeline_"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem;
+    margin: .2rem 0 .9rem;
+}
+
+/* Existing step elements: stronger color pops without changing their structure. */
+div[class*="st-key-sim_step_"] {
+    border-radius: 999px;
+    border: 1px solid rgba(42,154,164,.30);
+    background:
+        linear-gradient(135deg, rgba(42,154,164,.14), rgba(91,143,249,.07) 45%, rgba(224,146,58,.09));
+    padding: .28rem .62rem;
+    font-size: .78rem;
+    font-weight: 650;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+div[class*="st-key-sim_step_"]:hover {
+    transform: translateY(-2px);
+    border-color: rgba(224,146,58,.52);
+    box-shadow: 0 5px 16px rgba(42,154,164,.12), 0 3px 12px rgba(217,95,138,.07);
+}
+
+/* Main animation card: layered palette wash keeps teal dominant but adds the graph colors. */
+div[class*="st-key-anim_step_card_"] {
+    position: relative;
+    overflow: hidden;
+    background:
+        radial-gradient(circle at 100% 0%, rgba(224,146,58,.13), transparent 27%),
+        radial-gradient(circle at 0% 100%, rgba(91,143,249,.10), transparent 30%),
+        radial-gradient(circle at 82% 82%, rgba(108,99,255,.08), transparent 25%),
+        linear-gradient(145deg, rgba(42,154,164,.075), rgba(255,255,255,.018));
+    border: 1px solid rgba(42,154,164,.34) !important;
+    box-shadow:
+        0 8px 26px rgba(42,154,164,.09),
+        0 4px 18px rgba(91,143,249,.05),
+        inset 0 1px 0 rgba(255,255,255,.08);
+    border-radius: 16px !important;
+    animation: tfidf-step-in .35s ease-out, tfidf-card-pulse 2.6s ease-in-out .35s 1;
+}
+div[class*="st-key-anim_step_card_"]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 4px;
+    border-radius: 16px 16px 0 0;
+    background: linear-gradient(
+        90deg,
+        #5B8FF9 0%,
+        #2A9AA4 20%,
+        #6C63FF 40%,
+        #5BC0BE 58%,
+        #E0923A 74%,
+        #D95F8A 88%,
+        #4CAF7D 100%
+    );
+    background-size: 220% 100%;
+    animation: tfidf-palette-flow 4.5s ease-in-out infinite;
+    opacity: .92;
+    pointer-events: none;
+}
+div[class*="st-key-anim_step_card_"]::after {
+    content: "";
+    position: absolute;
+    width: 150px;
+    height: 150px;
+    right: -55px;
+    bottom: -65px;
+    border-radius: 50%;
+    background: radial-gradient(circle,
+        rgba(217,95,138,.11),
+        rgba(108,99,255,.07) 42%,
+        transparent 72%);
+    pointer-events: none;
+}
+@keyframes tfidf-palette-flow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+@keyframes tfidf-card-pulse {
+    0% { box-shadow: 0 8px 26px rgba(42,154,164,.08), 0 3px 14px rgba(91,143,249,.04); }
+    45% { box-shadow: 0 12px 32px rgba(224,146,58,.14), 0 5px 20px rgba(108,99,255,.08); }
+    100% { box-shadow: 0 8px 26px rgba(42,154,164,.08), 0 3px 14px rgba(91,143,249,.04); }
+}
+div[class*="st-key-anim_step_card_"] h2,
+div[class*="st-key-anim_step_card_"] h3 {
+    background: linear-gradient(90deg, #2A9AA4 0%, #5B8FF9 28%, #6C63FF 52%, #E0923A 76%, #D95F8A 100%);
+    background-size: 180% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: tfidf-heading-flow 5s ease-in-out infinite;
+}
+@keyframes tfidf-heading-flow {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+}
+
+/* Existing data areas get subtle palette framing only. */
+div[class*="st-key-anim_step_card_"] .stDataFrame,
+div[class*="st-key-anim_step_card_"] [data-testid="stDataFrame"] {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(42,154,164,.18);
+    box-shadow: inset 0 0 0 1px rgba(91,143,249,.035);
+}
+div[class*="st-key-anim_step_card_"] [data-testid="stProgress"] > div > div {
+    background: linear-gradient(90deg, #5B8FF9, #2A9AA4, #6C63FF, #5BC0BE, #E0923A, #D95F8A, #4CAF7D);
+    background-size: 250% 100%;
+    animation: tfidf-progress-flow 2.2s linear infinite;
+}
+@keyframes tfidf-progress-flow {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 250% 50%; }
+}
+div[class*="st-key-anim_step_card_"] [data-testid="stMetric"] {
+    border-radius: 12px;
+    border: 1px solid rgba(42,154,164,.22);
+    background:
+        linear-gradient(135deg, rgba(42,154,164,.07), rgba(91,143,249,.045) 50%, rgba(224,146,58,.045));
+}
+div[class*="st-key-sim_controls_"] {
+    border-radius: 14px;
+    background:
+        radial-gradient(circle at 0% 50%, rgba(42,154,164,.07), transparent 30%),
+        radial-gradient(circle at 100% 50%, rgba(224,146,58,.06), transparent 30%);
+}
+div[class*="st-key-sim_controls_"] button {
+    transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+div[class*="st-key-sim_controls_"] button:hover {
+    transform: translateY(-2px) scale(1.01);
+    box-shadow:
+        0 7px 18px rgba(42,154,164,.18),
+        0 3px 10px rgba(91,143,249,.08),
+        0 2px 8px rgba(224,146,58,.10);
+}
+div[class*="st-key-anim_step_card_"] [data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    border-color: rgba(224,146,58,.40);
+    box-shadow: 0 7px 18px rgba(42,154,164,.10), 0 3px 12px rgba(217,95,138,.07);
+}
+div[class*="st-key-anim_step_card_"] [data-testid="stDataFrame"]:hover {
+    box-shadow: 0 8px 22px rgba(42,154,164,.10), 0 3px 12px rgba(108,99,255,.06);
+}
+div[class*="st-key-anim_step_card_"] [data-testid="stMetric"],
+div[class*="st-key-anim_step_card_"] [data-testid="stDataFrame"] {
+    transition: transform .20s ease, box-shadow .20s ease, border-color .20s ease;
+}
+
+/* Existing tabs: a small multicolor wash, not a new UI element. */
+div[class*="st-key-sim_controls_"] [data-baseweb="tab-list"] {
+    background: linear-gradient(90deg, rgba(42,154,164,.08), rgba(91,143,249,.06), rgba(108,99,255,.06), rgba(224,146,58,.08));
+    border-radius: 12px;
+    padding: 3px;
+}
+div[class*="st-key-sim_controls_"] [data-baseweb="tab"] {
+    transition: background .18s ease, transform .18s ease;
+}
+div[class*="st-key-sim_controls_"] [data-baseweb="tab"]:hover {
+    background: linear-gradient(90deg, rgba(91,143,249,.10), rgba(108,99,255,.09), rgba(224,146,58,.10));
+    transform: translateY(-1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    div[class*="st-key-sim_hero_"],
+    div[class*="st-key-anim_step_card_"],
+    div[class*="st-key-anim_step_card_"] [data-testid="stProgress"] > div > div,
+    div[class*="st-key-anim_step_card_"]::before,
+    div[class*="st-key-anim_step_card_"] h2,
+    div[class*="st-key-anim_step_card_"] h3 {
+        animation: none !important;
+    }
+    div[class*="st-key-sim_step_"],
+    div[class*="st-key-sim_controls_"] button,
+    div[class*="st-key-anim_step_card_"] [data-testid="stMetric"],
+    div[class*="st-key-anim_step_card_"] [data-testid="stDataFrame"] {
+        transition: none !important;
+    }
+    div[class*="st-key-sim_hero_"]::after {
+        animation: none !important;
+    }
+}
+</style>
+"""
+
+
 ANIMATION_STEPS = [
     ("Tokenize", "Tokenize & build vocabulary", ":material/splitscreen:"),
     ("TF matrix", "Term frequency (TF) matrix", ":material/table_rows:"),
@@ -2071,6 +2334,13 @@ def render_simulation_section():
     st.header("Simulation", icon=":material/manage_search:")
     st.caption("Set a query and a weighting scheme, then step through the pipeline to watch TF-IDF build "
                "the term-document matrix, weight it by IDF, score it against your query, and rank the results.")
+    st.html(SIMULATION_VISUAL_CSS)
+    with st.container(key="sim_hero_"):
+        st.markdown("**Interactive retrieval workspace**")
+        st.caption("Explore how tokenization, TF, IDF, TF-IDF weighting and cosine similarity work together.")
+    with st.container(horizontal=True, gap="small", key="sim_pipeline_"):
+        for _step_i, (_short, _long, _icon) in enumerate(ANIMATION_STEPS, start=1):
+            st.markdown(f'<div class="sim_step_pill"><b>{_step_i}</b>&nbsp; {_short}</div>', unsafe_allow_html=True)
 
     # --- Controls ---------------------------------------------------------------------------
     if "pending_corpus_text" in st.session_state:
@@ -2082,7 +2352,7 @@ def render_simulation_section():
 
     corpus_preview = [line.strip() for line in st.session_state["corpus_text"].split("\n") if line.strip()]
 
-    with st.container(border=True):
+    with st.container(border=True, key="sim_controls_"):
         is_default_corpus = st.session_state["corpus_text"].strip() == "\n".join(DEFAULT_CORPUS)
         query_col, sample_col = st.columns([3, 2], vertical_alignment="bottom")
         with query_col:
@@ -2309,12 +2579,26 @@ def _render_animation_step(step: int, ctx: dict):
     elif step == 5:  # Similarity scoring
         score_label = "Cosine similarity" if use_cosine else "Dot product"
         st.markdown(f"Each document vector is compared against the query vector using **{score_label}**.")
+        _chart_palette = ["#2A9AA4", "#E0923A", "#6C63FF", "#4CAF7D", "#D95F8A", "#5B8FF9"]
+        _bar_colors = [
+            _chart_palette[i % len(_chart_palette)] if score > 0 else "rgba(128,128,128,0.28)"
+            for i, score in enumerate(result["scores"])
+        ]
         fig = go.Figure(go.Bar(
             x=doc_ids, y=result["scores"],
             text=[f"{s:.3f}" for s in result["scores"]], textposition="outside",
+            marker=dict(color=_bar_colors, line=dict(width=0)),
+            hovertemplate="<b>%{x}</b><br>Score: %{y:.4f}<extra></extra>",
         ))
-        fig.update_layout(height=340, yaxis_title=score_label, showlegend=False,
-                          margin=dict(l=10, r=10, t=20, b=10))
+        fig.update_layout(
+            height=340, yaxis_title=score_label, showlegend=False,
+            margin=dict(l=10, r=10, t=20, b=10),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            font=dict(size=12),
+            xaxis=dict(showgrid=False),
+            yaxis=dict(gridcolor="rgba(128,128,128,0.16)", zeroline=False),
+        )
         st.plotly_chart(fig, width="stretch", theme="streamlit")
 
     elif step == 6:  # Ranking
