@@ -1,6 +1,6 @@
 # TF-IDF Document Retrieval: KGIRS Virtual Lab (Experiment 4)
 
-An interactive virtual lab for **Experiment 4, TF-IDF Based Document Retrieval**, in the course *Knowledge Graphs and Information Retrieval Systems* (D17C, Group 4, Roll Nos. 16–20). Students read the theory, run a live TF-IDF search engine, measure how well it ranks documents, take a quiz, and download a PDF lab report.
+An interactive virtual lab for **Experiment 4, TF-IDF Based Document Retrieval**, in the course *Knowledge Graphs and Information Retrieval Systems* (Group 4, Roll Nos. 16–20). Students read the theory, run a live TF-IDF search engine, measure how well it ranks documents, take a quiz, and download a PDF lab report.
 
 - **Live app:** https://kgirsvl-c5u68p2abcwf2lrzng5bfk.streamlit.app/
 - **Source code:** https://github.com/IshanJ9/KGIRS_VL
@@ -260,7 +260,7 @@ The retrieval, evaluation and PDF functions have no Streamlit code, so they can 
 
 1. **Setup.** Installed the official Streamlit agent skill, then installed Streamlit and the other requirements in the project's `venv`.
 2. **UI redesign.** Replaced the sidebar radio menu with top navigation and added the theme in `config.toml`. Rebuilt the Simulation page around a single control box, a summary strip, search-result cards with highlighted query words, and tabs for the chart, heatmap and matrices. Gave the quiz per-question cards and a graded summary. Gave the report page a checklist. All of this used Streamlit's own theming, with no custom CSS.
-3. **Course details.** Set the roll numbers to 16–20 for the whole group and the class to D17C, in the app and in the PDF.
+3. **Course details.** Set the roll numbers to 16–20 for the whole group, in the app and in the PDF.
 4. **File upload.** Added `.txt`, `.md` and `.csv` upload for the corpus, with Replace and Add options. A bug where the text box kept showing old text after an upload was found and fixed with `set_corpus_text()`.
 5. **PDF report fixes.** Made the PDF trial table wrap long values instead of cutting them to 16 characters, repeat the header row on new pages, and handle special characters. Also stopped the signature line and section headings from being split across pages.
 6. **Hosting.** Committed only the needed files, using `.gitignore` for the rest, and pushed to GitHub. Removed a shared-file download that would have let students open each other's reports, raised the minimum Streamlit version to 1.64, and deployed on Streamlit Community Cloud.

@@ -1,6 +1,6 @@
 """
 Virtual Laboratory - Experiment 4: TF-IDF Based Document Retrieval
-Course: Knowledge Graphs and Information Retrieval Systems (D17C)
+Course: Knowledge Graphs and Information Retrieval Systems 
 Roll Nos: 16-20 | Group No: 4
 
 Built on the standard 4-section Virtual Lab template:
@@ -16,6 +16,7 @@ import re
 import math
 import zlib
 from collections import Counter
+from html import escape as _html_escape
 from datetime import datetime
 from pathlib import Path
 
@@ -32,9 +33,14 @@ from fpdf import FPDF
 
 EXPERIMENT_CONFIG = {
     "title": "Experiment 4: TF-IDF Based Document Retrieval",
-    "course": "Knowledge Graphs and Information Retrieval Systems (D17C)",
+    "course": "Knowledge Graphs and Information Retrieval Systems",
     "roll_no": "16-20",
     "group_no": "4",
+    "aim": "To represent a document collection and a search query as **TF-IDF weighted vectors** in the "
+           "vector space model, rank the documents by their **cosine similarity** to the query, observe how "
+           "the choice of TF and IDF weighting scheme changes that ranking, and measure the quality of the "
+           "ranking against relevance judgments using standard **information retrieval evaluation "
+           "parameters** - Precision@k, Recall@k, F1@k, Average Precision, Reciprocal Rank and nDCG@k.",
     "objectives": [
         "Understand how Term Frequency (TF) and Inverse Document Frequency (IDF) capture local and "
         "global term importance respectively.",
@@ -96,8 +102,8 @@ documents **R** and the top **k** retrieved documents:
   an ideal ranking. It rewards placing relevant documents near the top.
     """,
     "procedure": [
-        "Step 1: Review the theoretical background on TF-IDF weighting and the vector space model below.",
-        "Step 2: Navigate to the Simulation section in the sidebar menu.",
+        "Step 1: Read the Aim and the Theory page to review TF-IDF weighting and the vector space model.",
+        "Step 2: Open the Simulation page from the sidebar menu.",
         "Step 3: Inspect (or edit) the sample document corpus - one document per line.",
         "Step 4: Enter a search query that is relevant to the corpus, or pick one of the sample queries.",
         "Step 5: Choose a Term Frequency scheme and an Inverse Document Frequency scheme.",
@@ -108,7 +114,7 @@ documents **R** and the top **k** retrieved documents:
         "Step 8: Click 'Record this trial' after each configuration to log it into your session table.",
         "Step 9: Repeat for at least 3-4 distinct queries / weighting-scheme combinations.",
         "Step 10: Complete the assessment Quiz to test your conceptual understanding.",
-        "Step 11: Open Report Generation, enter your student information, and download your PDF report."
+        "Step 11: Open the Report page, enter your student information, and download your PDF report."
     ],
     "key_terms": {
         "Term Frequency (TF)": "How often a term occurs within a single document; may be a raw count, "
@@ -143,6 +149,143 @@ documents **R** and the top **k** retrieved documents:
         "IIT Kharagpur Virtual Labs - Information Retrieval discipline."
     ]
 }
+
+# The six stages of run_retrieval(), paired with the place in the Simulation page where each one is
+# visible. Rendered as the flow strip at the top of the Real-world applications page.
+PIPELINE_STAGES = [
+    {"n": 1, "name": "Corpus",
+     "what": "The collection you can retrieve from, one document per line.",
+     "where": "Edit document corpus"},
+    {"n": 2, "name": "Tokenize",
+     "what": "Lower-case, strip punctuation, drop stop words and one-letter tokens.",
+     "where": "Summary strip - vocabulary"},
+    {"n": 3, "name": "TF and IDF",
+     "what": "How often a term occurs in this document; how rare it is across all of them.",
+     "where": "Matrices tab - TF, IDF"},
+    {"n": 4, "name": "TF-IDF vectors",
+     "what": "Multiply the two, so frequent-here-but-rare-elsewhere terms dominate.",
+     "where": "Matrices tab - TF-IDF"},
+    {"n": 5, "name": "Cosine scoring",
+     "what": "Compare the query vector with every document vector, ignoring length.",
+     "where": "Ranked results, Score chart"},
+    {"n": 6, "name": "Rank and evaluate",
+     "what": "Sort by score, then score the ranking itself against relevance judgments.",
+     "where": "Evaluation tab"},
+]
+
+# Procedure steps grouped into phases: (label, icon, start index, end index) over THEORY_CONTENT["procedure"].
+PROCEDURE_PHASES = [
+    ("Prepare", ":material/menu_book:", 0, 2),
+    ("Run the retrieval", ":material/play_arrow:", 2, 7),
+    ("Record and assess", ":material/task_alt:", 7, None),
+]
+
+# Real-world uses of the same pipeline. Each carries a small corpus and query so the Applications page can
+# run the real retrieval engine on it, rather than describing the result in prose.
+APPLICATIONS = [
+    {
+        "name": "Web and site search",
+        "icon": ":material/travel_explore:",
+        "doc": "A web or help-centre page",
+        "query_is": "What the user types",
+        "metric": "nDCG@k",
+        "why": "Every page says *account*, so it weighs nothing. Only one says *reset* - and that decides it.",
+        "query": "reset my account password",
+        "corpus": [
+            "Reset your password from the account settings page by choosing Forgot password and confirming "
+            "the link we email to you.",
+            "Update the billing address and the payment card stored on your account from the same settings page.",
+            "Our password policy asks for twelve characters, one number and one symbol on every new account.",
+            "Contact the support desk if you still cannot sign in to your account after a password reset.",
+            "The company was founded in 2011 and now employs four hundred people across six offices.",
+        ],
+    },
+    {
+        "name": "Spam and phishing filtering",
+        "icon": ":material/report:",
+        "doc": "One email or SMS",
+        "query_is": "A profile of spam terms",
+        "metric": "Precision@k",
+        "why": "Shared vocabulary cancels out. What survives - *urgent*, *suspended*, *verify* - is the signal.",
+        "query": "urgent verify your suspended account click this link",
+        "corpus": [
+            "URGENT your account has been suspended, click this link now to verify your identity before it "
+            "is closed permanently.",
+            "Verify your bank account immediately or the pending transfer will be cancelled, use the secure "
+            "link below.",
+            "Team lunch moves to Friday at one o'clock in the fourth floor kitchen, no need to reply.",
+            "Your monthly invoice is attached as a PDF, no action is needed from your side.",
+            "Congratulations you have won a prize, claim it urgently by clicking the link and paying the "
+            "small handling fee.",
+        ],
+    },
+    {
+        "name": "More-like-this recommendation",
+        "icon": ":material/recommend:",
+        "doc": "Another article in the catalogue",
+        "query_is": "The article being read",
+        "metric": "Precision@k",
+        "why": "Cosine divides length out, so a short closely-related piece still beats a long vague one.",
+        "query": "knowledge graph entity linking for search",
+        "corpus": [
+            "Entity linking maps a mention in text to the matching node in a knowledge graph before the "
+            "search runs.",
+            "A knowledge graph stores entities as nodes and the relationships between them as labelled edges.",
+            "Convolutional networks classify images by learning filters over neighbourhoods of pixels.",
+            "Query understanding rewrites a search query using the entities recognised inside the text.",
+            "The quarterly revenue report shows growth in three of the five regional markets.",
+        ],
+    },
+    {
+        "name": "Plagiarism and duplicate detection",
+        "icon": ":material/content_copy:",
+        "doc": "An earlier submission",
+        "query_is": "The passage being checked",
+        "metric": "Recall",
+        "why": "Two texts on a topic share common words. Sharing the *rare* ones is what looks like copying.",
+        "query": "documents and queries are represented as vectors over a shared vocabulary",
+        "corpus": [
+            "In the vector space model documents and queries are represented as vectors over a shared "
+            "vocabulary of terms.",
+            "Cosine similarity normalises for length so that long documents are not unfairly favoured.",
+            "Boolean retrieval returns the set of documents matching a logical expression, without ranking them.",
+            "A good sourdough loaf needs a mature starter and a long cold proof in the refrigerator.",
+            "The vector representation of a document is sparse, because most vocabulary terms never occur in it.",
+        ],
+    },
+    {
+        "name": "Resume and job matching",
+        "icon": ":material/badge:",
+        "doc": "One candidate resume",
+        "query_is": "The job description",
+        "metric": "Recall@k",
+        "why": "*Experience* and *team* are on every resume and add nothing. The skill terms carry the score.",
+        "query": "python machine learning pipelines and model deployment experience",
+        "corpus": [
+            "Built and shipped machine learning pipelines in Python, owning model deployment behind a REST API.",
+            "Five years of Python backend work on billing services, with occasional exposure to model deployment.",
+            "Graphic designer specialising in brand identity, packaging and print production.",
+            "Data analyst using SQL and spreadsheets to report on weekly marketing performance.",
+            "Machine learning researcher publishing on graph neural networks, working mostly in Python.",
+        ],
+    },
+    {
+        "name": "Support ticket routing",
+        "icon": ":material/support_agent:",
+        "doc": "A support queue",
+        "query_is": "An incoming ticket",
+        "metric": "Reciprocal Rank",
+        "why": "The corpus is one document per queue, so a single term unique to a queue routes the ticket.",
+        "query": "wrong tax rate on my invoice",
+        "corpus": [
+            "Billing queue: invoice and tax rate problems, refunds, failed payments and subscription changes.",
+            "Authentication queue: sign-in problems, password resets, two-factor codes and locked accounts.",
+            "Performance queue: slow page loads, request timeouts and report generation failures.",
+            "Onboarding queue: account setup, data import and user provisioning for new customers.",
+            "Hardware queue: shipping, returns and physical replacement of faulty devices.",
+        ],
+    },
+]
 
 # Small, generic English stop-word list used during tokenization.
 STOPWORDS = {
@@ -639,7 +782,7 @@ def generate_pdf_report(student_name: str, student_id: str, date_str: str,
 
 
 # ======================================================================================
-# 4. SECTION RENDERERS: THEORY, SIMULATION, QUIZ, REPORT
+# 4. SECTION RENDERERS: AIM, THEORY, PROCEDURE, APPLICATIONS, REFERENCES, SIMULATION, QUIZ, REPORT
 # ======================================================================================
 
 TF_SHORT = {
@@ -674,8 +817,34 @@ def highlight_terms(text: str, terms: set) -> str:
     return "".join(out)
 
 
+def render_aim_section():
+    """Renders the Aim page: the aim statement, the objectives and what the student hands in."""
+    st.header("Aim", icon=":material/flag:")
+    st.caption("What this experiment sets out to do, and why it is worth doing.")
+
+    with st.container(border=True):
+        st.markdown(EXPERIMENT_CONFIG["aim"])
+
+    left, right = st.columns([3, 2])
+    with left:
+        st.subheader("Objectives", icon=":material/checklist_rtl:")
+        for i, obj in enumerate(EXPERIMENT_CONFIG["objectives"], start=1):
+            st.markdown(f"**{i}.** &nbsp; {obj}")
+    with right:
+        st.subheader("What you hand in", icon=":material/inventory_2:")
+        st.markdown(
+            "- At least **3 recorded trials** across different queries and weighting schemes.\n"
+            "- The **six evaluation parameters** for each trial, measured against relevance judgments.\n"
+            "- A completed **quiz** score.\n"
+            "- A downloaded **PDF lab report** with your trial table and observations."
+        )
+
+    st.divider()
+    render_applications_block()
+
+
 def render_theory_section():
-    """Renders Section 1: Theory, Background, Objectives, and Procedure."""
+    """Renders the Theory page: the two formulas, the background reading and the glossary."""
     st.header("Theory", icon=":material/menu_book:")
     st.caption("How TF-IDF turns text into vectors and ranks documents against a query.")
 
@@ -689,22 +858,12 @@ def render_theory_section():
             st.latex(r"\cos(\vec q, \vec d) = \frac{\vec q \cdot \vec d}{\lVert \vec q \rVert \, \lVert \vec d \rVert}")
             st.caption("Similarity between the query and a document, independent of length.")
 
-    overview, objectives, procedure, glossary, refs = st.tabs([
+    overview, glossary = st.tabs([
         ":material/article: Overview",
-        ":material/flag: Objectives",
-        ":material/checklist: Procedure",
         ":material/dictionary: Key terms",
-        ":material/library_books: References",
     ])
     with overview:
         st.markdown(THEORY_CONTENT["background"])
-    with objectives:
-        for obj in EXPERIMENT_CONFIG["objectives"]:
-            st.markdown(f"- {obj}")
-    with procedure:
-        for step in THEORY_CONTENT["procedure"]:
-            label, _, text = step.partition(": ")
-            st.markdown(f"**{label}** &nbsp; {text}")
     with glossary:
         var_df = pd.DataFrame(list(THEORY_CONTENT["key_terms"].items()), columns=["Term", "Definition"])
         st.dataframe(
@@ -712,7 +871,480 @@ def render_theory_section():
             column_config={"Term": st.column_config.TextColumn(width="medium"),
                            "Definition": st.column_config.TextColumn(width="large")}
         )
-    with refs:
+
+
+def render_procedure_section():
+    """Renders the Procedure page: the ordered steps, grouped into three phases."""
+    st.header("Procedure", icon=":material/checklist:")
+    st.caption("Follow the steps in order. Steps 3 to 9 all happen on the Simulation page.")
+
+    steps = THEORY_CONTENT["procedure"]
+    for label, icon, start, end in PROCEDURE_PHASES:
+        st.subheader(label, icon=icon)
+        with st.container(border=True):
+            for step in steps[start:end]:
+                name, _, text = step.partition(": ")
+                st.markdown(f"**{name}** &nbsp; {text}")
+
+
+ACCENT = "#2A9AA4"
+
+# Inline styling for the illustrated blocks on the Real-world applications page. Colors are either the
+# shared accent or a neutral gray alpha, so the same markup reads correctly in the light and dark themes.
+APP_VISUAL_CSS = """
+<style>
+.kg-wrap { width: 100%; }
+.kg-chips { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem; }
+.kg-chip {
+    display: inline-block; padding: .15em .6em; border-radius: 999px; font-weight: 600;
+    background: rgba(42, 154, 164, 0.16); border: 1px solid rgba(42, 154, 164, 0.45); line-height: 1.5;
+}
+.kg-chip.kg-dead {
+    background: rgba(128, 128, 128, 0.10); border-color: rgba(128, 128, 128, 0.30); opacity: .65;
+}
+.kg-row { display: flex; align-items: center; gap: .75rem; padding: .45rem 0;
+          border-bottom: 1px solid rgba(128, 128, 128, 0.22); }
+.kg-row:last-child { border-bottom: none; }
+.kg-rank { flex: 0 0 1.9rem; height: 1.9rem; border-radius: 50%; display: flex; align-items: center;
+           justify-content: center; font-weight: 700; font-size: .85rem;
+           background: rgba(128, 128, 128, 0.18); }
+.kg-rank.kg-top { background: #2A9AA4; color: #fff; }
+.kg-body { flex: 1 1 auto; min-width: 0; }
+.kg-bar { height: 8px; border-radius: 4px; background: rgba(128, 128, 128, 0.16); overflow: hidden;
+          margin-bottom: .3rem; }
+.kg-bar > span { display: block; height: 100%; border-radius: 4px; background: #2A9AA4; }
+.kg-bar.kg-zero > span { background: rgba(128, 128, 128, 0.35); }
+.kg-text { font-size: .86rem; line-height: 1.45; opacity: .92; }
+.kg-score { flex: 0 0 3.4rem; text-align: right; font-variant-numeric: tabular-nums;
+            font-weight: 600; font-size: .85rem; }
+.kg-hit { background: rgba(224, 146, 58, 0.30); color: inherit; padding: 0 .18em; border-radius: 3px; }
+.kg-idfrow { display: flex; align-items: center; gap: .75rem; padding: .3rem 0; }
+.kg-idflab { flex: 0 0 11rem; font-size: .82rem; opacity: .75; }
+.kg-idfval { flex: 0 0 2.6rem; text-align: right; font-variant-numeric: tabular-nums;
+             font-weight: 600; font-size: .85rem; }
+</style>
+"""
+
+
+def _esc(text) -> str:
+    return _html_escape(str(text), quote=True)
+
+
+def _highlight_html(text: str, terms: set) -> str:
+    """Same idea as highlight_terms(), but emitting HTML for the illustrated result rows."""
+    out = []
+    for part in re.split(r"(\s+)", text):
+        if part.strip() and set(tokenize(part)) & terms:
+            out.append(f'<mark class="kg-hit">{_esc(part)}</mark>')
+        else:
+            out.append(_esc(part))
+    return "".join(out)
+
+
+def _pipeline_svg() -> str:
+    """Draws the six retrieval stages as a single illustrated flow strip.
+
+    Every shape uses currentColor or the accent, so the drawing follows the active theme.
+    """
+    art = []
+    for i in range(len(PIPELINE_STAGES)):
+        cx = i * 200 + 80
+        if i == 0:  # a small shelf of documents
+            shapes = []
+            for j in range(3):
+                dx = cx - 46 + j * 32
+                shapes.append(f'<rect x="{dx}" y="56" width="28" height="42" rx="3" fill="currentColor" '
+                              f'fill-opacity="0.10" stroke="currentColor" stroke-opacity="0.38"/>')
+                for ly in (66, 74, 82):
+                    shapes.append(f'<line x1="{dx + 5}" y1="{ly}" x2="{dx + 23}" y2="{ly}" '
+                                  f'stroke="currentColor" stroke-opacity="0.38" stroke-width="2"/>')
+            art.append("".join(shapes))
+        elif i == 1:  # a document broken into loose tokens
+            shapes = [f'<rect x="{cx - 58}" y="58" width="26" height="40" rx="3" fill="currentColor" '
+                      f'fill-opacity="0.10" stroke="currentColor" stroke-opacity="0.38"/>']
+            for ly in (68, 76, 84):
+                shapes.append(f'<line x1="{cx - 53}" y1="{ly}" x2="{cx - 37}" y2="{ly}" '
+                              f'stroke="currentColor" stroke-opacity="0.38" stroke-width="2"/>')
+            for r in range(2):
+                for c in range(3):
+                    shapes.append(f'<rect x="{cx - 20 + c * 24}" y="{60 + r * 22}" width="18" height="12" '
+                                  f'rx="3" fill="{ACCENT}" fill-opacity="0.42"/>')
+            art.append("".join(shapes))
+        elif i == 2:  # a weight grid with uneven cells
+            ops = [0.14, 0.55, 0.22, 0.80, 0.38, 0.10, 0.66, 0.26, 0.18, 0.44, 0.90, 0.30]
+            shapes = []
+            for idx, op in enumerate(ops):
+                r, c = divmod(idx, 4)
+                shapes.append(f'<rect x="{cx - 40 + c * 21}" y="{54 + r * 21}" width="17" height="17" '
+                              f'rx="3" fill="{ACCENT}" fill-opacity="{op}"/>')
+            art.append("".join(shapes))
+        elif i == 3:  # vectors leaving the origin
+            shapes = [f'<line x1="{cx - 34}" y1="108" x2="{cx + 42}" y2="108" stroke="currentColor" '
+                      f'stroke-opacity="0.35" stroke-width="2"/>',
+                      f'<line x1="{cx - 34}" y1="108" x2="{cx - 34}" y2="52" stroke="currentColor" '
+                      f'stroke-opacity="0.35" stroke-width="2"/>']
+            for ex, ey, op in ((cx + 22, 62, 0.9), (cx + 36, 84, 0.55), (cx - 4, 56, 0.55)):
+                shapes.append(f'<line x1="{cx - 34}" y1="108" x2="{ex}" y2="{ey}" stroke="{ACCENT}" '
+                              f'stroke-opacity="{op}" stroke-width="2.5" marker-end="url(#kgtip)"/>')
+            art.append("".join(shapes))
+        elif i == 4:  # the angle between query and document
+            art.append(
+                f'<line x1="{cx - 30}" y1="108" x2="{cx + 42}" y2="108" stroke="currentColor" '
+                f'stroke-opacity="0.35" stroke-width="2"/>'
+                f'<line x1="{cx - 30}" y1="108" x2="{cx - 30}" y2="52" stroke="currentColor" '
+                f'stroke-opacity="0.35" stroke-width="2"/>'
+                f'<line x1="{cx - 30}" y1="108" x2="{cx + 34}" y2="54" stroke="{ACCENT}" stroke-width="2.8" '
+                f'marker-end="url(#kgtip)"/>'
+                f'<line x1="{cx - 30}" y1="108" x2="{cx + 40}" y2="84" stroke="currentColor" '
+                f'stroke-opacity="0.6" stroke-width="2.5" marker-end="url(#kgtip)"/>'
+                f'<path d="M {cx - 4} 86 A 34 34 0 0 1 {cx + 3} 97" fill="none" stroke="currentColor" '
+                f'stroke-opacity="0.65" stroke-width="1.6"/>'
+                f'<text x="{cx + 9}" y="90" font-size="12" fill="currentColor" fill-opacity="0.75">&#952;</text>'
+            )
+        else:  # the ranked list
+            shapes = []
+            for j, w in enumerate((92, 68, 46, 28)):
+                fill = ACCENT if j == 0 else "currentColor"
+                op = "0.95" if j == 0 else "0.28"
+                shapes.append(f'<rect x="{cx - 46}" y="{56 + j * 16}" width="{w}" height="11" rx="3" '
+                              f'fill="{fill}" fill-opacity="{op}"/>')
+            art.append("".join(shapes))
+
+    parts = [
+        _svg_open(1160, 186, "The six stages of the TF-IDF retrieval pipeline"),
+        '<defs><marker id="kgtip" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" '
+        'orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs>',
+    ]
+    for i, stage in enumerate(PIPELINE_STAGES):
+        x, cx = i * 200, i * 200 + 80
+        parts.append(f'<rect x="{x}" y="20" width="160" height="130" rx="14" fill="currentColor" '
+                     f'fill-opacity="0.04" stroke="currentColor" stroke-opacity="0.22"/>')
+        parts.append(art[i])
+        parts.append(f'<circle cx="{x + 21}" cy="35" r="12" fill="{ACCENT}"/>')
+        parts.append(f'<text x="{x + 21}" y="40" text-anchor="middle" font-size="13" font-weight="700" '
+                     f'fill="#ffffff">{stage["n"]}</text>')
+        parts.append(f'<text x="{cx}" y="137" text-anchor="middle" font-size="14" font-weight="600" '
+                     f'fill="currentColor">{_esc(stage["name"])}</text>')
+        parts.append(f'<text x="{cx}" y="172" text-anchor="middle" font-size="11" fill="currentColor" '
+                     f'fill-opacity="0.55">{_esc(stage["where"])}</text>')
+        if i < len(PIPELINE_STAGES) - 1:
+            parts.append(f'<line x1="{x + 168}" y1="85" x2="{x + 190}" y2="85" stroke="currentColor" '
+                         f'stroke-opacity="0.45" stroke-width="2" marker-end="url(#kgtip)"/>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _weight_grid_svg(terms: list, doc_ids: list, weights: list) -> str:
+    """Term-by-document TF-IDF weights drawn as a shaded grid: darker cell, heavier weight."""
+    cell_w, cell_h, gutter_l, gutter_t = 78, 30, 46, 26
+    width = gutter_l + len(terms) * cell_w
+    height = gutter_t + len(doc_ids) * cell_h
+    peak = max((w for row in weights for w in row), default=0.0) or 1.0
+
+    parts = [_svg_open(width, height, "TF-IDF weight of each query term in each document")]
+    for c, term in enumerate(terms):
+        parts.append(f'<text x="{gutter_l + c * cell_w + cell_w / 2}" y="17" text-anchor="middle" '
+                     f'font-size="13" font-weight="600" fill="currentColor">{_esc(term)}</text>')
+    for r, doc in enumerate(doc_ids):
+        y = gutter_t + r * cell_h
+        parts.append(f'<text x="{gutter_l - 10}" y="{y + cell_h / 2 + 4}" text-anchor="end" font-size="12" '
+                     f'fill="currentColor" fill-opacity="0.7">{_esc(doc)}</text>')
+        for c in range(len(terms)):
+            w = weights[r][c]
+            op = round(max(0.05, w / peak), 3)
+            x = gutter_l + c * cell_w
+            parts.append(f'<rect x="{x + 2}" y="{y + 2}" width="{cell_w - 4}" height="{cell_h - 4}" rx="4" '
+                         f'fill="{ACCENT}" fill-opacity="{op}"><title>{_esc(doc)} · {_esc(terms[c])} '
+                         f'= {w:.4f}</title></rect>')
+            if w > 0:
+                parts.append(f'<text x="{x + cell_w / 2}" y="{y + cell_h / 2 + 4}" text-anchor="middle" '
+                             f'font-size="11" fill="currentColor" fill-opacity="0.9">{w:.2f}</text>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _svg_open(view_w: int, view_h: int, label: str) -> str:
+    # A drawing rendered through st.image is an isolated document and cannot reach the page's web fonts,
+    # so name a system sans-serif stack here instead of inheriting the serif default.
+    return (f'<svg viewBox="0 0 {view_w} {view_h}" role="img" aria-label="{_esc(label)}" '
+            f'font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif">')
+
+
+def _draw(svg: str, width="stretch") -> None:
+    """Renders an SVG drawing.
+
+    st.html sanitizes with DOMPurify's html-only profile, which strips <svg> outright, so the drawings go
+    through st.image instead - Streamlit inlines them as a data URI. An <img> does not inherit the page's
+    text color, so currentColor is resolved against the active theme here before handing it over.
+    """
+    mode = None
+    try:
+        mode = st.context.theme["type"]
+    except Exception:  # theme is unavailable outside a live script run
+        pass
+    ink = {"light": "#15232A", "dark": "#E3ECEE"}.get(mode, "#7F8C93")
+    st.image(svg.replace("currentColor", ink), width=width)
+
+
+def _hero_svg() -> str:
+    """The one-drawing answer to 'what does this website actually do?'.
+
+    Three scenes - you ask, it weighs every word, you get a ranking you can measure.
+    """
+    p = [_svg_open(1100, 232, "You ask a question, the lab weighs every word, you get a measured ranking"),
+         '<defs><marker id="kghero" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" '
+         'orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs>']
+
+    # Scene A - the query box
+    p.append('<rect x="34" y="66" width="250" height="52" rx="26" fill="currentColor" fill-opacity="0.05" '
+             'stroke="currentColor" stroke-opacity="0.30"/>')
+    p.append(f'<circle cx="68" cy="92" r="12" fill="none" stroke="{ACCENT}" stroke-width="3"/>')
+    p.append(f'<line x1="77" y1="101" x2="88" y2="112" stroke="{ACCENT}" stroke-width="3.5" '
+             f'stroke-linecap="round"/>')
+    p.append('<text x="104" y="98" font-size="15" fill="currentColor" fill-opacity="0.75">'
+             'tf-idf document ranking</text>')
+
+    # Scene B - documents fanned into a weight matrix
+    for j in range(3):
+        dx = 372 + j * 26
+        p.append(f'<rect x="{dx}" y="58" width="22" height="30" rx="3" fill="currentColor" '
+                 f'fill-opacity="0.10" stroke="currentColor" stroke-opacity="0.35"/>')
+    p.append('<text x="411" y="106" text-anchor="middle" font-size="11" fill="currentColor" '
+             'fill-opacity="0.55">documents</text>')
+    p.append(f'<line x1="452" y1="80" x2="474" y2="80" stroke="currentColor" stroke-opacity="0.4" '
+             f'stroke-width="2" marker-end="url(#kghero)"/>')
+    ops = [0.14, 0.62, 0.22, 0.85, 0.30,
+           0.40, 0.12, 0.70, 0.20, 0.55,
+           0.25, 0.48, 0.16, 0.36, 0.92,
+           0.60, 0.18, 0.30, 0.74, 0.22]
+    for idx, op in enumerate(ops):
+        r, c = divmod(idx, 5)
+        p.append(f'<rect x="{492 + c * 30}" y="{44 + r * 26}" width="26" height="22" rx="4" '
+                 f'fill="{ACCENT}" fill-opacity="{op}"/>')
+    p.append('<text x="561" y="164" text-anchor="middle" font-size="11" fill="currentColor" '
+             'fill-opacity="0.55">every word, weighted</text>')
+
+    # Scene C - the ranked answer
+    for j, w in enumerate((156, 112, 76, 48)):
+        top = j == 0
+        p.append(f'<text x="852" y="{62 + j * 24}" text-anchor="end" font-size="12" fill="currentColor" '
+                 f'fill-opacity="0.6">{j + 1}</text>')
+        p.append(f'<rect x="862" y="{50 + j * 24}" width="{w}" height="16" rx="4" '
+                 f'fill="{ACCENT if top else "currentColor"}" fill-opacity="{1 if top else 0.24}"/>')
+    p.append(f'<circle cx="1038" cy="58" r="11" fill="{ACCENT}"/>')
+    p.append('<path d="M 1032 58 L 1036 63 L 1044 53" fill="none" stroke="#ffffff" stroke-width="2.6" '
+             'stroke-linecap="round" stroke-linejoin="round"/>')
+    p.append('<text x="862" y="164" font-size="11" fill="currentColor" fill-opacity="0.55">'
+             'P@k · R@k · F1 · AP · nDCG</text>')
+
+    # Connectors and captions
+    p.append('<line x1="300" y1="92" x2="358" y2="92" stroke="currentColor" stroke-opacity="0.45" '
+             'stroke-width="2.5" marker-end="url(#kghero)"/>')
+    p.append('<line x1="660" y1="92" x2="846" y2="92" stroke="currentColor" stroke-opacity="0.45" '
+             'stroke-width="2.5" marker-end="url(#kghero)"/>')
+    for cx, title, sub in ((159, "You ask", "any query, any collection"),
+                           (561, "It weighs every word", "rare words count, common ones do not"),
+                           (940, "You get a ranking", "and the numbers that judge it")):
+        p.append(f'<text x="{cx}" y="198" text-anchor="middle" font-size="16" font-weight="700" '
+                 f'fill="currentColor">{_esc(title)}</text>')
+        p.append(f'<text x="{cx}" y="219" text-anchor="middle" font-size="12" fill="currentColor" '
+                 f'fill-opacity="0.6">{_esc(sub)}</text>')
+    p.append("</svg>")
+    return "".join(p)
+
+
+def _mini_svg(inner: str, label: str) -> str:
+    return _svg_open(120, 80, label) + inner + "</svg>"
+
+
+def _benefit_art() -> list:
+    """Four small drawings, one per reason to use the lab."""
+    # 1. every number is on screen: a weight matrix under a magnifier
+    grid = []
+    for idx, op in enumerate([0.15, 0.55, 0.25, 0.80, 0.35, 0.12, 0.65, 0.30, 0.20, 0.45, 0.90, 0.28]):
+        r, c = divmod(idx, 4)
+        grid.append(f'<rect x="{14 + c * 21}" y="{8 + r * 18}" width="18" height="15" rx="3" '
+                    f'fill="{ACCENT}" fill-opacity="{op}"/>')
+    grid.append(f'<circle cx="88" cy="56" r="14" fill="none" stroke="{ACCENT}" stroke-width="3.2"/>')
+    grid.append(f'<line x1="98" y1="66" x2="110" y2="78" stroke="{ACCENT}" stroke-width="3.5" '
+                f'stroke-linecap="round"/>')
+
+    # 2. one switch, a different ranking
+    knob = [f'<rect x="12" y="8" width="46" height="24" rx="12" fill="{ACCENT}" fill-opacity="0.22" '
+            f'stroke="{ACCENT}" stroke-opacity="0.6"/>',
+            f'<circle cx="46" cy="20" r="9" fill="{ACCENT}"/>']
+    for j, w in enumerate((32, 21, 13)):
+        knob.append(f'<rect x="8" y="{44 + j * 12}" width="{w}" height="8" rx="3" fill="currentColor" '
+                    f'fill-opacity="0.28"/>')
+    # Drawn arrowhead rather than a marker: markers live in another SVG's <defs> and may not be rendered.
+    knob.append('<line x1="50" y1="56" x2="60" y2="56" stroke="currentColor" stroke-opacity="0.45" '
+                'stroke-width="2"/>')
+    knob.append('<polygon points="60,52 67,56 60,60" fill="currentColor" fill-opacity="0.45"/>')
+    for j, (w, hot) in enumerate(((21, False), (32, True), (11, False))):
+        knob.append(f'<rect x="70" y="{44 + j * 12}" width="{w}" height="8" rx="3" '
+                    f'fill="{ACCENT if hot else "currentColor"}" fill-opacity="{1 if hot else 0.28}"/>')
+
+    # 3. a gauge, because the ranking gets scored
+    gauge = ['<path d="M 22 62 A 38 38 0 0 1 98 62" fill="none" stroke="currentColor" stroke-opacity="0.18" '
+             'stroke-width="11" stroke-linecap="round"/>',
+             f'<path d="M 22 62 A 38 38 0 0 1 98 62" fill="none" stroke="{ACCENT}" stroke-width="11" '
+             f'stroke-linecap="round" stroke-dasharray="84 126"/>',
+             '<line x1="60" y1="62" x2="79" y2="36" stroke="currentColor" stroke-width="3" '
+             'stroke-linecap="round"/>',
+             '<circle cx="60" cy="62" r="4.5" fill="currentColor"/>',
+             '<text x="60" y="78" text-anchor="middle" font-size="12" font-weight="700" '
+             'fill="currentColor">nDCG</text>']
+
+    # 4. you leave with a PDF
+    report = ['<rect x="22" y="8" width="54" height="64" rx="5" fill="currentColor" fill-opacity="0.07" '
+              'stroke="currentColor" stroke-opacity="0.35"/>']
+    for j, w in enumerate((36, 36, 26, 36, 20)):
+        report.append(f'<rect x="30" y="{18 + j * 10}" width="{w}" height="4" rx="2" fill="currentColor" '
+                      f'fill-opacity="0.3"/>')
+    report.append(f'<circle cx="90" cy="56" r="16" fill="{ACCENT}"/>')
+    report.append('<line x1="90" y1="47" x2="90" y2="63" stroke="#ffffff" stroke-width="3" '
+                  'stroke-linecap="round"/>')
+    report.append('<path d="M 83 56 L 90 64 L 97 56" fill="none" stroke="#ffffff" stroke-width="3" '
+                  'stroke-linecap="round" stroke-linejoin="round"/>')
+
+    return ["".join(grid), "".join(knob), "".join(gauge), "".join(report)]
+
+
+def render_applications_block():
+    """Renders the orientation block at the foot of the Aim page: what the lab does, why it is worth
+    using, a tour of its pages, and where the same technique is used in practice - plus a live retrieval
+    over the chosen application's own collection. Not a page of its own; called by render_aim_section()."""
+    st.header("Real-world applications", icon=":material/public:")
+    st.caption("New here? Start with this.")
+    st.html(APP_VISUAL_CSS)
+
+    # --- What this lab does -------------------------------------------------------------------------
+    st.subheader("What this lab does", icon=":material/lightbulb:")
+    _draw(_hero_svg())
+    with st.expander("How it works, stage by stage", icon=":material/account_tree:"):
+        _draw(_pipeline_svg())
+        st.caption("Only the collection and the query change between applications. The grey line under "
+                   "each stage is where you watch it happen in the Simulation.")
+
+    # --- Why use it ---------------------------------------------------------------------------------
+    st.subheader("Why use it", icon=":material/star:")
+    reasons = [
+        ("Nothing is hidden", "Every TF, IDF and TF-IDF number that produced the ranking is on screen."),
+        ("Change one setting", "Switch a weighting scheme and watch the order of the results move."),
+        ("Judge the ranking", "Score it with the same parameters real search systems are judged on."),
+        ("Leave with a report", "Your trials and observations export as a PDF you can hand in."),
+    ]
+    art = _benefit_art()
+    cols = st.columns(4)
+    for col, (title, text), drawing in zip(cols, reasons, art):
+        with col:
+            with st.container(border=True):
+                _draw(_mini_svg(drawing, title), width=120)
+                st.markdown(f"**{title}**")
+                st.caption(text)
+
+    st.divider()
+
+    # --- Gallery ------------------------------------------------------------------------------------
+    st.subheader("Where it is used", icon=":material/apps:")
+    for row_start in (0, 3):
+        cols = st.columns(3)
+        for col, a in zip(cols, APPLICATIONS[row_start:row_start + 3]):
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"## {a['icon']}")
+                    st.markdown(f"**{a['name']}**")
+                    st.markdown(
+                        f":gray-badge[:material/description: {a['doc']}]  \n"
+                        f":gray-badge[:material/search: {a['query_is']}]  \n"
+                        f":blue-badge[:material/straighten: {a['metric']}]"
+                    )
+
+    st.divider()
+
+    # --- Live retrieval over the chosen application -------------------------------------------------
+    st.subheader("Watch one run", icon=":material/play_circle:")
+    names = [a["name"] for a in APPLICATIONS]
+    chosen = st.segmented_control(
+        "Application", options=names, default=names[0], key="app_scenario", required=True,
+        label_visibility="collapsed"
+    )
+    app = next((a for a in APPLICATIONS if a["name"] == chosen), APPLICATIONS[0])
+
+    # Normalized TF with standard IDF and cosine: the defaults a student meets in the Simulation.
+    result = run_retrieval(app["corpus"], app["query"], TF_SCHEMES[1], IDF_SCHEMES[0], use_cosine=True)
+    doc_ids = [f"D{i + 1}" for i in range(len(app["corpus"]))]
+    matched = set(result["query_tokens"])
+    order = result["ranking"]
+    peak = max(result["scores"]) or 1.0
+
+    st.markdown(f"**The query** &nbsp; :material/search: &nbsp; *{app['query']}*")
+
+    # Query terms as chips, sized by how much each one can move the ranking.
+    terms_by_idf = sorted(matched, key=lambda t: result["idf"][t], reverse=True)
+    top_idf = max((result["idf"][t] for t in terms_by_idf), default=0.0) or 1.0
+    chips = []
+    for t in terms_by_idf:
+        size = 13 + 13 * (result["idf"][t] / top_idf)
+        chips.append(f'<span class="kg-chip" style="font-size:{size:.0f}px" title="idf {result["idf"][t]:.3f} '
+                     f'· appears in {result["df"][t]} of {len(app["corpus"])} documents">{_esc(t)}</span>')
+    for t in result["oov_terms"]:
+        chips.append(f'<span class="kg-chip kg-dead" style="font-size:13px" '
+                     f'title="not in this collection, ignored">{_esc(t)}</span>')
+    if chips:
+        st.html(f'<div class="kg-chips">{"".join(chips)}</div>')
+        st.caption("Bigger chip, rarer term, more say over the ranking. Faded chips are not in this "
+                   "collection and are dropped.")
+
+    st.markdown("**The ranking**")
+    rows = []
+    for rank, i in enumerate(order, start=1):
+        score = result["scores"][i]
+        pct = 100 * score / peak
+        rows.append(
+            f'<div class="kg-row">'
+            f'<div class="kg-rank{" kg-top" if rank == 1 and score > 0 else ""}">{rank}</div>'
+            f'<div class="kg-body">'
+            f'<div class="kg-bar{"" if score > 0 else " kg-zero"}"><span style="width:{max(pct, 1.2):.1f}%"></span></div>'
+            f'<div class="kg-text">{_highlight_html(app["corpus"][i], matched)}</div>'
+            f'</div>'
+            f'<div class="kg-score">{score:.3f}</div>'
+            f'</div>'
+        )
+    st.html(f'<div class="kg-wrap">{"".join(rows)}</div>')
+    st.info(app["why"], icon=":material/lightbulb:")
+
+    if matched:
+        with st.expander("The weights behind those bars", icon=":material/grid_on:"):
+            terms = terms_by_idf
+            weights = [[result["tfidf_matrix"][i][t] for t in terms] for i in order]
+            _draw(_weight_grid_svg(terms, [doc_ids[i] for i in order], weights))
+            st.caption("Rows in ranked order. Same numbers as the Simulation's Matrices tab.")
+
+    st.divider()
+
+    # --- Why a rare term decides the ranking --------------------------------------------------------
+    st.subheader("Why the rare word wins", icon=":material/insights:")
+    st.markdown("IDF is $\\log_{10}(N / \\mathrm{df}_t)$ - it collapses as a term spreads.")
+    idf_rows = []
+    for df_val in (1, 2, 5, 20, 50, 100):
+        idf_val = math.log10(100 / df_val)
+        idf_rows.append(
+            f'<div class="kg-idfrow">'
+            f'<div class="kg-idflab">in {df_val} of 100 documents</div>'
+            f'<div class="kg-bar"><span style="width:{max(100 * idf_val / 2.0, 0.6):.1f}%"></span></div>'
+            f'<div class="kg-idfval">{idf_val:.2f}</div>'
+            f'</div>'
+        )
+    st.html(f'<div class="kg-wrap">{"".join(idf_rows)}</div>')
+
+
+def render_references_section():
+    """Renders the References page."""
+    st.header("References", icon=":material/library_books:")
+    st.caption("Where the theory, the formulas and the evaluation parameters used in this lab come from.")
+
+    with st.container(border=True):
         for ref in THEORY_CONTENT["references"]:
             st.markdown(f"- {ref}")
 
@@ -1267,6 +1899,22 @@ def init_session_state():
         st.session_state["query_text"] = DEFAULT_QUERY
 
 
+# Streamlit always renders the navigation widget at the very top of the sidebar, above user content.
+# Re-ordering the sidebar's flex children puts the experiment header and progress block above it instead.
+SIDEBAR_ORDER_CSS = """
+<style>
+[data-testid="stSidebarContent"] { display: flex; flex-direction: column; }
+[data-testid="stSidebarHeader"] { order: 0; }
+[data-testid="stSidebarUserContent"] { order: 1; padding-bottom: 0.75rem; }
+[data-testid="stSidebarNav"] {
+    order: 2;
+    border-top: 1px solid rgba(128, 128, 128, 0.28);
+    padding-top: 0.5rem;
+}
+</style>
+"""
+
+
 def render_sidebar():
     with st.sidebar:
         st.markdown(f"### Experiment 4\n**TF-IDF document retrieval**")
@@ -1291,13 +1939,18 @@ def main():
     )
 
     init_session_state()
+    st.html(SIDEBAR_ORDER_CSS)
 
     page = st.navigation([
-        st.Page(render_theory_section, title="Theory", icon=":material/menu_book:", url_path="theory", default=True),
+        st.Page(render_aim_section, title="Aim", icon=":material/flag:", url_path="aim", default=True),
+        st.Page(render_theory_section, title="Theory", icon=":material/menu_book:", url_path="theory"),
+        st.Page(render_procedure_section, title="Procedure", icon=":material/checklist:", url_path="procedure"),
+        st.Page(render_references_section, title="References", icon=":material/library_books:",
+                url_path="references"),
         st.Page(render_simulation_section, title="Simulation", icon=":material/manage_search:", url_path="simulation"),
         st.Page(render_quiz_section, title="Quiz", icon=":material/quiz:", url_path="quiz"),
         st.Page(render_report_section, title="Report", icon=":material/description:", url_path="report"),
-    ], position="top")
+    ], position="sidebar")
     page.run()
     render_sidebar()  # after the page so counts include this run's actions
 
