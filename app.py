@@ -2681,6 +2681,26 @@ def render_sidebar():
         st.markdown(f"### Experiment 4\n**TF-IDF document retrieval**")
         st.caption(f"{EXPERIMENT_CONFIG['course']}  \nRoll nos {EXPERIMENT_CONFIG['roll_no']} · "
                    f"Group {EXPERIMENT_CONFIG['group_no']}")
+
+
+def render_sidebar_nav(pages: dict):
+    """Renders the page links manually, as a list with a sub-list per section.
+
+    st.navigation's built-in sidebar widget always pins itself to the very top of the
+    sidebar, so it can't be positioned below other sidebar content. Rendering the links
+    ourselves with st.page_link (while st.navigation runs with position="hidden") lets the
+    nav sit below the Experiment 4 header instead.
+    """
+    with st.sidebar:
+        for section, section_pages in pages.items():
+            if section:
+                st.caption(section)
+            for p in section_pages:
+                st.page_link(p)
+
+
+def render_sidebar_progress():
+    with st.sidebar:
         st.space("small")
         st.markdown("**Your progress**")
         n_trials = len(st.session_state["trials"])
@@ -2713,7 +2733,7 @@ def main():
         st.Page(render_report_section, title="Report", icon=":material/description:", url_path="report"),
     ], position="sidebar")
     page.run()
-    render_sidebar()  # after the page so counts include this run's actions
+    render_sidebar_progress()  # after the page so counts include this run's actions
 
 
 if __name__ == "__main__":
