@@ -674,8 +674,8 @@ def highlight_terms(text: str, terms: set) -> str:
     return "".join(out)
 
 
-def render_theory_section():
-    """Renders Section 1: Theory, Background, Objectives, and Procedure."""
+def _render_theory_header():
+    """Shared header shown at the top of every Theory sub-page."""
     st.header("Theory", icon=":material/menu_book:")
     st.caption("How TF-IDF turns text into vectors and ranks documents against a query.")
 
@@ -689,32 +689,49 @@ def render_theory_section():
             st.latex(r"\cos(\vec q, \vec d) = \frac{\vec q \cdot \vec d}{\lVert \vec q \rVert \, \lVert \vec d \rVert}")
             st.caption("Similarity between the query and a document, independent of length.")
 
-    overview, objectives, procedure, glossary, refs = st.tabs([
-        ":material/article: Overview",
-        ":material/flag: Objectives",
-        ":material/checklist: Procedure",
-        ":material/dictionary: Key terms",
-        ":material/library_books: References",
-    ])
-    with overview:
-        st.markdown(THEORY_CONTENT["background"])
-    with objectives:
-        for obj in EXPERIMENT_CONFIG["objectives"]:
-            st.markdown(f"- {obj}")
-    with procedure:
-        for step in THEORY_CONTENT["procedure"]:
-            label, _, text = step.partition(": ")
-            st.markdown(f"**{label}** &nbsp; {text}")
-    with glossary:
-        var_df = pd.DataFrame(list(THEORY_CONTENT["key_terms"].items()), columns=["Term", "Definition"])
-        st.dataframe(
-            var_df, hide_index=True, width="stretch",
-            column_config={"Term": st.column_config.TextColumn(width="medium"),
-                           "Definition": st.column_config.TextColumn(width="large")}
-        )
-    with refs:
-        for ref in THEORY_CONTENT["references"]:
-            st.markdown(f"- {ref}")
+
+def render_theory_overview():
+    """Renders Theory > Overview."""
+    _render_theory_header()
+    st.subheader("Overview", icon=":material/article:")
+    st.markdown(THEORY_CONTENT["background"])
+
+
+def render_theory_objectives():
+    """Renders Theory > Objectives."""
+    _render_theory_header()
+    st.subheader("Objectives", icon=":material/flag:")
+    for obj in EXPERIMENT_CONFIG["objectives"]:
+        st.markdown(f"- {obj}")
+
+
+def render_theory_procedure():
+    """Renders Theory > Procedure."""
+    _render_theory_header()
+    st.subheader("Procedure", icon=":material/checklist:")
+    for step in THEORY_CONTENT["procedure"]:
+        label, _, text = step.partition(": ")
+        st.markdown(f"**{label}** &nbsp; {text}")
+
+
+def render_theory_key_terms():
+    """Renders Theory > Key terms."""
+    _render_theory_header()
+    st.subheader("Key terms", icon=":material/dictionary:")
+    var_df = pd.DataFrame(list(THEORY_CONTENT["key_terms"].items()), columns=["Term", "Definition"])
+    st.dataframe(
+        var_df, hide_index=True, width="stretch",
+        column_config={"Term": st.column_config.TextColumn(width="medium"),
+                       "Definition": st.column_config.TextColumn(width="large")}
+    )
+
+
+def render_theory_references():
+    """Renders Theory > References."""
+    _render_theory_header()
+    st.subheader("References", icon=":material/library_books:")
+    for ref in THEORY_CONTENT["references"]:
+        st.markdown(f"- {ref}")
 
 
 def _decode_upload(file) -> str:
@@ -1267,11 +1284,31 @@ def init_session_state():
         st.session_state["query_text"] = DEFAULT_QUERY
 
 
-def render_sidebar():
+def render_sidebar_header():
     with st.sidebar:
         st.markdown(f"### Experiment 4\n**TF-IDF document retrieval**")
         st.caption(f"{EXPERIMENT_CONFIG['course']}  \nRoll nos {EXPERIMENT_CONFIG['roll_no']} · "
                    f"Group {EXPERIMENT_CONFIG['group_no']}")
+
+
+def render_sidebar_nav(pages: dict):
+    """Renders the page links manually, as a list with a sub-list per section.
+
+    st.navigation's built-in sidebar widget always pins itself to the very top of the
+    sidebar, so it can't be positioned below other sidebar content. Rendering the links
+    ourselves with st.page_link (while st.navigation runs with position="hidden") lets the
+    nav sit below the Experiment 4 header instead.
+    """
+    with st.sidebar:
+        for section, section_pages in pages.items():
+            if section:
+                st.caption(section)
+            for p in section_pages:
+                st.page_link(p)
+
+
+def render_sidebar_progress():
+    with st.sidebar:
         st.space("small")
         st.markdown("**Your progress**")
         n_trials = len(st.session_state["trials"])
@@ -1292,14 +1329,32 @@ def main():
 
     init_session_state()
 
-    page = st.navigation([
-        st.Page(render_theory_section, title="Theory", icon=":material/menu_book:", url_path="theory", default=True),
-        st.Page(render_simulation_section, title="Simulation", icon=":material/manage_search:", url_path="simulation"),
-        st.Page(render_quiz_section, title="Quiz", icon=":material/quiz:", url_path="quiz"),
-        st.Page(render_report_section, title="Report", icon=":material/description:", url_path="report"),
-    ], position="top")
+    pages = {
+        "Theory": [
+            st.Page(render_theory_overview, title="Overview", icon=":material/article:",
+                    url_path="theory-overview", default=True),
+            st.Page(render_theory_objectives, title="Objectives", icon=":material/flag:",
+                    url_path="theory-objectives"),
+            st.Page(render_theory_procedure, title="Procedure", icon=":material/checklist:",
+                    url_path="theory-procedure"),
+            st.Page(render_theory_key_terms, title="Key terms", icon=":material/dictionary:",
+                    url_path="theory-key-terms"),
+            st.Page(render_theory_references, title="References", icon=":material/library_books:",
+                    url_path="theory-references"),
+        ],
+        "Lab": [
+            st.Page(render_simulation_section, title="Simulation", icon=":material/manage_search:", url_path="simulation"),
+            st.Page(render_quiz_section, title="Quiz", icon=":material/quiz:", url_path="quiz"),
+            st.Page(render_report_section, title="Report", icon=":material/description:", url_path="report"),
+        ],
+    }
+
+    render_sidebar_header()
+    render_sidebar_nav(pages)
+
+    page = st.navigation(pages, position="hidden")
     page.run()
-    render_sidebar()  # after the page so counts include this run's actions
+    render_sidebar_progress()  # after the page so counts include this run's actions
 
 
 if __name__ == "__main__":
