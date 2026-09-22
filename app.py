@@ -51,7 +51,7 @@ EXPERIMENT_CONFIG = {
 
 THEORY_CONTENT = {
     "procedure": [
-        "Step 1: Read the Aim and the Theory page to review TF-IDF weighting and the vector space model.",
+        "Step 1: Read the Purpose and the Theory page to review TF-IDF weighting and the vector space model.",
         "Step 2: Open the Simulation page from the sidebar menu.",
         "Step 3: Inspect (or edit) the sample document corpus - one document per line.",
         "Step 4: Enter a search query that is relevant to the corpus, or pick one of the sample queries.",
@@ -1484,7 +1484,7 @@ def highlight_terms(text: str, terms: set) -> str:
 
 def render_aim_section():
     """Renders the Aim page: the aim statement, the objectives and what the student hands in."""
-    st.header("Aim", icon=":material/flag:")
+    st.header("Purpose", icon=":material/flag:")
     st.caption("What this experiment sets out to do, and why it is worth doing.")
 
     with st.container(border=True):
@@ -2326,7 +2326,7 @@ ANIMATION_STEPS = [
     ("Ranking", "Rank documents", ":material/sort:"),
     ("Top-k", "Top-k results", ":material/emoji_events:"),
 ]
-ANIMATION_INTERVAL = "1.4s"
+DEFAULT_ANIMATION_SPEED = 1.4  # seconds each step stays on screen while playing
 
 
 def render_simulation_section():
@@ -2481,12 +2481,18 @@ def _render_animation_controls(step: int, n: int):
             st.session_state["anim_playing"] = False
             st.rerun()
 
+        st.slider(
+            "Speed", min_value=0.3, max_value=3.0, step=0.1, key="anim_speed",
+            format="%.1fs/step", width=200,
+            help="How long each step stays on screen while playing.",
+        )
+
 
 def _render_animation_display(ctx: dict, n: int):
     # run_every is read fresh on every full rerun (this whole entrypoint file re-executes each
     # time), so toggling "anim_playing" via the controls above changes the interval on the very
     # next run: None when paused, a fixed delay while playing.
-    interval = ANIMATION_INTERVAL if st.session_state["anim_playing"] else None
+    interval = f"{st.session_state['anim_speed']}s" if st.session_state["anim_playing"] else None
 
     @st.fragment(run_every=interval)
     def _fragment():
@@ -2823,6 +2829,8 @@ def init_session_state():
         st.session_state["anim_playing"] = False
     if "anim_fingerprint" not in st.session_state:
         st.session_state["anim_fingerprint"] = None
+    if "anim_speed" not in st.session_state:
+        st.session_state["anim_speed"] = DEFAULT_ANIMATION_SPEED
 
 
 # Streamlit always renders the navigation widget at the very top of the sidebar, above user content.
@@ -2888,7 +2896,7 @@ def main():
     st.html(SIDEBAR_ORDER_CSS)
 
     page = st.navigation([
-        st.Page(render_aim_section, title="Aim", icon=":material/flag:", url_path="aim", default=True),
+        st.Page(render_aim_section, title="Purpose", icon=":material/flag:", url_path="aim", default=True),
         st.Page(render_theory_section, title="Theory", icon=":material/menu_book:", url_path="theory"),
         st.Page(render_procedure_section, title="Procedure", icon=":material/checklist:", url_path="procedure"),
         st.Page(render_references_section, title="References", icon=":material/library_books:",
