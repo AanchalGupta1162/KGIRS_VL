@@ -2905,6 +2905,7 @@ def main():
         st.Page(render_quiz_section, title="Quiz", icon=":material/quiz:", url_path="quiz"),
         st.Page(render_report_section, title="Report", icon=":material/description:", url_path="report"),
     ], position="sidebar")
+    st.markdown("### Experiment 4 : TF-IDF Based Document Retrieval")
     page.run()
     render_sidebar_progress()  # after the page so counts include this run's actions
 
