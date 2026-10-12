@@ -482,16 +482,24 @@ QUIZ_LENGTH = 10
 QUIZ_QUESTIONS = [
     {
         "id": 1,
-        "question": "What does the acronym TF-IDF stand for?",
+        "question": "On the Simulation page, open 'Edit document corpus', clear it completely, and paste "
+                    "in exactly this (one line per document, so they become D1-D4 in this order):\n\n"
+                    "```\nMachine learning algorithms learn from data, and machine learning has "
+                    "transformed search.\nGraph databases store relationships between entities "
+                    "efficiently.\nA machine learning model was trained to classify documents by "
+                    "topic.\nRelational databases organize data into rows and columns.\n```\n\n"
+                    "Search for `machine learning`, with Raw Term Frequency, Standard IDF, and cosine "
+                    "normalization on. Which document ranks first?",
         "options": [
-            "A) Term Frequency - Inverse Document Frequency",
-            "B) Text Format - Index Data Field",
-            "C) Total Frequency - Indexed Data File",
-            "D) Term Filter - Inverted Document Format",
+            "A) D1",
+            "B) D2",
+            "C) D3",
+            "D) D4",
         ],
         "answer_index": 0,
-        "explanation": "TF-IDF combines Term Frequency (local importance) with Inverse Document Frequency "
-                       "(global rarity) into a single weight.",
+        "explanation": "D1 ranks clearly first (about 0.57), well ahead of D3 (about 0.30) - D1 says "
+                       "'machine learning' twice, D3 only once. D2 and D4 share no terms with the query "
+                       "and score 0.",
     },
     {
         "id": 2,
@@ -508,18 +516,17 @@ QUIZ_QUESTIONS = [
     },
     {
         "id": 3,
-        "question": "A corpus has N = 100 documents. A term appears in df = 10 of them. Using the "
-                    "standard formula idf = log10(N / df), what is its IDF?",
+        "question": "A term occurs in every single document of the corpus, so df = N. Using the standard "
+                    "formula, what is its IDF?",
         "options": [
-            "A) 0.5",
-            "B) 1.0",
-            "C) 2.0",
-            "D) 10.0",
+            "A) 1, because it is present everywhere",
+            "B) N, because it scales with the collection",
+            "C) 0, so the term contributes nothing to any score",
+            "D) Undefined, because the formula divides by zero",
         ],
-        "answer_index": 1,
-        "explanation": "idf = log10(100 / 10) = log10(10) = 1.0. Work the ratio out first, then take the "
-                       "log10 of that ratio - the log is what keeps the weight from growing with N or df "
-                       "directly.",
+        "answer_index": 2,
+        "explanation": "idf = log10(N / df) = log10(N / N) = log10(1) = 0. A term present in every "
+                       "document cannot distinguish between them, so it adds nothing to any score.",
     },
     {
         "id": 4,
@@ -550,16 +557,21 @@ QUIZ_QUESTIONS = [
     },
     {
         "id": 6,
-        "question": "In this lab, the vocabulary is built from which text?",
+        "question": "Using the same corpus and query as the previous question (paste them into the "
+                    "Simulation page again if you need to), switch the IDF scheme to Smoothed IDF, "
+                    "leaving the term-frequency scheme on Raw Term Frequency and cosine normalization on. "
+                    "Does the top-ranked document's similarity score go higher, lower, or stay the same "
+                    "compared to Standard IDF?",
         "options": [
-            "A) The document corpus only",
-            "B) The query only",
-            "C) The corpus and the query combined",
-            "D) A fixed English dictionary shipped with the app",
+            "A) Higher",
+            "B) Lower",
+            "C) Exactly the same",
+            "D) Zero - the two schemes share no terms",
         ],
         "answer_index": 0,
-        "explanation": "The vocabulary comes from the corpus alone. That is why a query word that appears "
-                       "in no document has no IDF, and is reported as out-of-vocabulary.",
+        "explanation": "The top document (still D1) scores about 0.67 with Smoothed IDF, versus about "
+                       "0.57 with Standard IDF - higher, because log(1 + N/df) is always larger than "
+                       "log(N/df), so every term's weight increases.",
     },
     {
         "id": 7,
@@ -576,45 +588,43 @@ QUIZ_QUESTIONS = [
     },
     {
         "id": 8,
-        "question": "A document contains 25 tokens in total, and the term 'graph' appears 5 times. Using "
-                    "normalized term frequency = count(t,d) / |d|, what is TF for 'graph' in this document?",
+        "question": "Why are stop words removed before weighting?",
         "options": [
-            "A) 0.05",
-            "B) 0.2",
-            "C) 5.0",
-            "D) 25.0",
+            "A) They are always spelled incorrectly",
+            "B) They make the corpus file larger on disk",
+            "C) They occur in nearly every document, so they separate nothing and only add noise",
+            "D) They cannot be converted to lower case",
         ],
-        "answer_index": 1,
-        "explanation": "tf = count / document length = 5 / 25 = 0.2. Dividing by the document's token "
-                       "count is what stops a document from scoring higher simply for being longer.",
+        "answer_index": 2,
+        "explanation": "Words like 'the', 'of' and 'and' appear almost everywhere. Their IDF would be "
+                       "near zero anyway, so removing them early shrinks the vocabulary at no cost.",
     },
     {
         "id": 9,
-        "question": "A search returns 5 documents at k = 5. Of those, 3 are judged relevant. What is "
-                    "Precision@5?",
+        "question": "What is the main weakness of using the raw term count as TF?",
         "options": [
-            "A) 0.3",
-            "B) 0.5",
-            "C) 0.6",
-            "D) 1.67",
+            "A) It cannot be computed for short documents",
+            "B) It always produces negative weights",
+            "C) It ignores how rare the term is in the collection",
+            "D) It favours long documents, because they contain more of every term",
         ],
-        "answer_index": 2,
-        "explanation": "Precision@k = relevant retrieved / k = 3 / 5 = 0.6. It only looks at what was "
-                       "returned, not at how many relevant documents exist in total - that is recall's job.",
+        "answer_index": 3,
+        "explanation": "A raw count grows with document length, so long documents score higher on "
+                       "everything. Length normalisation divides by the document's token count to fix it.",
     },
     {
         "id": 10,
-        "question": "A term appears 9 times in a document. Using log-normalised TF = 1 + log10(count(t,d)), "
-                    "what is its TF, to two decimal places?",
+        "question": "What problem does log-normalised term frequency address?",
         "options": [
-            "A) 0.95",
-            "B) 1.95",
-            "C) 9.00",
-            "D) 2.20",
+            "A) That relevance does not grow linearly with repetition",
+            "B) That some documents contain no terms at all",
+            "C) That the corpus may contain duplicate documents",
+            "D) That IDF can be negative on small collections",
         ],
-        "answer_index": 1,
-        "explanation": "tf = 1 + log10(9) = 1 + 0.95 = 1.95. Nine repetitions barely cost more than one "
-                       "would, which is exactly the point of compressing counts with a logarithm.",
+        "answer_index": 0,
+        "explanation": "A document using a term twenty times is not twenty times more relevant than one "
+                       "using it once. The logarithm compresses large counts so extra repetitions matter "
+                       "progressively less.",
     },
 ]
 

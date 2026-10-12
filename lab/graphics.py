@@ -4,6 +4,7 @@ Kept separate from the page renderers so a page module only pulls in the drawing
 actually uses, and so the drawing code (verbose, mostly numeric) doesn't crowd out the
 page logic that calls it.
 """
+import math
 import re
 from html import escape as _html_escape
 
@@ -41,10 +42,28 @@ def _cosine_svg() -> str:
         p.append(f'<text x="{ex + 12}" y="{ey + 15}" font-size="11" fill="currentColor" '
                  f'fill-opacity="0.55">{note}</text>')
 
-    # The angle between q and the better-matching document.
-    p.append(f'<path d="M {ox + 88} {oy - 46} A 100 100 0 0 1 {ox + 96} {oy - 29}" fill="none" '
-             f'stroke="{ACCENT}" stroke-width="2"/>')
-    p.append(f'<text x="{ox + 108} " y="{oy - 30}" font-size="14" fill="{ACCENT}">&#952;</text>')
+    # The angle between q and the better-matching document, drawn as a shaded wedge so it reads
+    # clearly even though the two vectors are, by design, close together (that is what makes d1
+    # the better match). SVG angles run clockwise from the +x axis since y points down the page.
+    r = 70
+    q_angle = math.degrees(math.atan2(96 - oy, 300 - ox))
+    d1_angle = math.degrees(math.atan2(150 - oy, 330 - ox))
+    start_angle, end_angle = sorted((q_angle, d1_angle))
+
+    def _point_on_circle(angle_deg, radius):
+        rad = math.radians(angle_deg)
+        return ox + radius * math.cos(rad), oy + radius * math.sin(rad)
+
+    sx, sy = _point_on_circle(start_angle, r)
+    ex2, ey2 = _point_on_circle(end_angle, r)
+    large_arc = 1 if (end_angle - start_angle) > 180 else 0
+    p.append(f'<path d="M {ox} {oy} L {sx:.1f} {sy:.1f} A {r} {r} 0 {large_arc} 1 {ex2:.1f} {ey2:.1f} Z" '
+             f'fill="{ACCENT}" fill-opacity="0.14" stroke="{ACCENT}" stroke-width="1.5" '
+             f'stroke-opacity="0.8"/>')
+    label_angle = (start_angle + end_angle) / 2
+    lx, ly = _point_on_circle(label_angle, r + 20)
+    p.append(f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="middle" '
+             f'font-size="14" fill="{ACCENT}">&#952;</text>')
     p.append(f'<text x="{ox + 4}" y="{oy + 22}" font-size="11" fill="currentColor" fill-opacity="0.55">'
              f'origin</text>')
     p.append("</svg>")

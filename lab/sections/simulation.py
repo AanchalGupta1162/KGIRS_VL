@@ -1,4 +1,5 @@
 """The Simulation page: the interactive, step-by-step TF-IDF walk-through."""
+import re
 from datetime import datetime
 
 import numpy as np
@@ -22,6 +23,28 @@ def set_corpus_text(text: str, query: str | None = None):
     if query is not None:
         st.session_state["query_text"] = query
         st.session_state["pending_query_text"] = query
+
+
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _pdf_to_documents(file) -> list[str]:
+    """Extracts a PDF's text and splits it into one document per sentence.
+
+    Splitting by page would leave a single-page file (a resume, say) as just one document, which
+    fails the "at least two documents" minimum below. Sentences give a PDF of any length a corpus
+    with real variety to rank across.
+    """
+    from pypdf import PdfReader
+
+    reader = PdfReader(file)
+    full_text = " ".join(" ".join((page.extract_text() or "").split()) for page in reader.pages)
+    return [s.strip() for s in _SENTENCE_SPLIT_RE.split(full_text) if s.strip()]
+
+
+def _text_to_documents(text: str) -> list[str]:
+    """One document per non-empty line, the format used by the corpus text box."""
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 CUSTOM_QUERY_OPTION = "Type your own..."
@@ -325,6 +348,14 @@ div[class*="st-key-sim_controls_"] [data-baseweb="tab"]:hover {
     text-align: center;
     font-weight: 700;
 }
+
+/* Center and bold every table's headers and cells on this page (tokens, TF matrix, TF-IDF
+   matrix, query vector, ranking). */
+[data-testid="stMain"] [data-testid="stTable"] th,
+[data-testid="stMain"] [data-testid="stTable"] td {
+    text-align: center !important;
+    font-weight: 700 !important;
+}
 </style>
 """
 
@@ -348,6 +379,11 @@ ANIMATION_STEPS = [
      "Only the first k documents are shown as the best matches a user should inspect first."),
 ]
 DEFAULT_ANIMATION_SPEED = 1.4  # seconds each step stays on screen while playing
+
+# Real-text corpora can easily reach 1,000+ vocabulary terms. A plain HTML table (needed for bold,
+# centered cells - see _render_animation_step) with that many rows/columns is what caused the
+# animation to lag badly, so matrix/term tables are capped to this many rows or columns.
+MAX_DISPLAY_TERMS = 25
 
 
 def render_simulation_section():
@@ -415,13 +451,22 @@ def render_simulation_section():
             )
             st.session_state["corpus_text"] = corpus_text
 
-            uploaded = st.file_uploader(
-                "Or upload your own corpus", type=["txt"], key="corpus_upload",
-                help="A plain-text file with one document per line. Replaces the corpus above."
+            uploaded_files = st.file_uploader(
+                "Or upload your own corpus", type=["txt", "md", "pdf"], key="corpus_upload",
+                accept_multiple_files=True,
+                help="One or more .txt/.md files (one document per line) or .pdf files (split into "
+                     "sentences). Replaces the corpus above with all of them combined."
             )
-            if uploaded is not None and st.session_state.get("corpus_upload_id") != uploaded.file_id:
-                st.session_state["corpus_upload_id"] = uploaded.file_id
-                set_corpus_text(uploaded.read().decode("utf-8", errors="replace"))
+            upload_ids = tuple(f.file_id for f in uploaded_files) if uploaded_files else ()
+            if upload_ids and st.session_state.get("corpus_upload_ids") != upload_ids:
+                st.session_state["corpus_upload_ids"] = upload_ids
+                docs = []
+                for f in uploaded_files:
+                    if f.name.lower().endswith(".pdf"):
+                        docs.extend(_pdf_to_documents(f))
+                    else:
+                        docs.extend(_text_to_documents(f.read().decode("utf-8", errors="replace")))
+                set_corpus_text("\n".join(docs))
                 st.session_state["corpus_expanded"] = True
                 st.rerun()
 
@@ -462,9 +507,9 @@ def render_simulation_section():
     _render_animation_controls(step, n)
     _render_animation_display(ctx, n)
 
-    if step >= n - 1 and not st.session_state["anim_playing"]:
+    if not st.session_state["anim_playing"]:
         st.divider()
-        
+
         if st.button("Record this trial", icon=":material/save:", type="primary",
                      key="record_simulation_trial"):
             top_index = result["ranking"][0]
@@ -572,26 +617,6 @@ def _render_animation_display(ctx: dict, n: int):
     _fragment()
 
 
-@st.dialog("TF-IDF details")
-def _show_tfidf_cell_explanation(document_id: str, document_text: str, term: str,
-                                 tf_value: float, idf_value: float, tfidf_value: float):
-    st.subheader(f"Document {document_id}")
-    st.markdown("**Document text**")
-    st.code(document_text, language="text")
-    st.markdown(f"**Selected term:** `{term}`")
-
-    tf_col, idf_col = st.columns(2)
-    with tf_col:
-        st.metric("TF", f"{tf_value:.6f}")
-    with idf_col:
-        st.metric("IDF", f"{idf_value:.6f}")
-
-    st.success(
-        f"{tf_value:.6f} x {idf_value:.6f} = {tfidf_value:.6f}",
-        icon=":material/calculate:"
-    )
-
-
 def _render_animation_step(step: int, ctx: dict):
     corpus, doc_ids, query = ctx["corpus"], ctx["doc_ids"], ctx["query"]
     result, tf_scheme, idf_scheme = ctx["result"], ctx["tf_scheme"], ctx["idf_scheme"]
@@ -604,7 +629,7 @@ def _render_animation_step(step: int, ctx: dict):
             {"Doc": doc_ids[i], "Tokens": ", ".join(tokenize(corpus[i])) or "_(none)_"}
             for i in range(len(corpus))
         ])
-        st.dataframe(tok_df, hide_index=True, width="stretch")
+        st.table(tok_df.style.hide(axis="index"))
         query_tokens_all = tokenize(query)
         if query_tokens_all:
             st.markdown("**Query tokens:** " + " ".join(
@@ -614,57 +639,28 @@ def _render_animation_step(step: int, ctx: dict):
         st.caption(f"Vocabulary: **{len(vocab)}** unique terms across **{len(corpus)}** documents.")
 
     elif step == 1:  # TF matrix
-        ordered_terms = sorted(vocab, key=lambda t: (-result["df"][t], t))
+        ordered_terms = sorted(vocab, key=lambda t: (-result["df"][t], t))[:MAX_DISPLAY_TERMS]
         tf_df = pd.DataFrame(result["tf_matrix"], index=doc_ids, columns=vocab)[ordered_terms].round(3)
-        st.caption("Columns start with the terms that appear in the most documents, so the non-zero "
-                   "weights are grouped on the left.")
-        st.dataframe(tf_df.replace(0, np.nan), width="stretch")
+        st.caption(f"Showing the {len(ordered_terms)} of {len(vocab)} terms that appear in the most "
+                   "documents, so the non-zero weights are grouped on the left.")
+        with st.container(height=460):
+            st.table(tf_df.replace(0, np.nan))
 
     elif step == 2:  # DF & IDF
-        idf_df = pd.DataFrame([{"Term": t, "df": result["df"][t], "IDF": result["idf"][t]} for t in vocab])
-        idf_df = idf_df.sort_values("IDF", ascending=False)
-        st.dataframe(
-            idf_df, hide_index=True, width="stretch",
-            column_config={"IDF": st.column_config.ProgressColumn(
-                "IDF", format="%.4f", min_value=0.0, max_value=float(idf_df["IDF"].max() or 1.0))}
-        )
+        top_terms = sorted(vocab, key=lambda t: result["idf"][t], reverse=True)[:MAX_DISPLAY_TERMS]
+        idf_df = pd.DataFrame([{"Term": t, "df": result["df"][t], "IDF": result["idf"][t]} for t in top_terms])
+        idf_df = idf_df.sort_values("IDF", ascending=False).round(4)
+        st.caption(f"Showing the {len(top_terms)} highest-IDF terms of {len(vocab)} in the vocabulary.")
+        st.table(idf_df.style.hide(axis="index"))
 
     elif step == 3:  # TF-IDF matrix
         st.latex(r"w_{t,d} = \mathrm{tf}_{t,d} \times \mathrm{idf}_t")
-        ordered_terms = sorted(vocab, key=lambda t: (-result["df"][t], t))
+        ordered_terms = sorted(vocab, key=lambda t: (-result["df"][t], t))[:MAX_DISPLAY_TERMS]
         tfidf_df = pd.DataFrame(result["tfidf_matrix"], index=doc_ids, columns=vocab)[ordered_terms].round(4)
-        st.caption(f"{len(tfidf_df)} documents x {len(tfidf_df.columns)} terms, most common words first so "
-                   "fewer zero weights show up front. Scroll inside the table to view the full matrix.")
-        matrix_event = st.dataframe(
-            tfidf_df.replace(0, np.nan),
-            height=460,
-            width="stretch",
-            key="tfidf_matrix_table",
-            on_select="rerun",
-            selection_mode="single-cell",
-            column_config={
-                term: st.column_config.NumberColumn(term, width="small", format="%.3f")
-                for term in ordered_terms
-            },
-        )
-        selected_cells = matrix_event.selection.cells
-        if selected_cells:
-            selected_cell = selected_cells[0]
-            if isinstance(selected_cell, dict):
-                selected_row = selected_cell["row"]
-                selected_term = selected_cell["column"]
-            else:
-                selected_row, selected_term = selected_cell
-            if isinstance(selected_term, int):
-                selected_term = ordered_terms[selected_term]
-            selected_doc = doc_ids[selected_row]
-            tf_value = result["tf_matrix"][selected_row][selected_term]
-            idf_value = result["idf"][selected_term]
-            tfidf_value = result["tfidf_matrix"][selected_row][selected_term]
-            _show_tfidf_cell_explanation(
-                selected_doc, corpus[selected_row], selected_term,
-                tf_value, idf_value, tfidf_value
-            )
+        st.caption(f"{len(tfidf_df)} documents x {len(ordered_terms)} of {len(vocab)} terms (most common "
+                   "words first, so fewer zero weights show up front).")
+        with st.container(height=460):
+            st.table(tfidf_df.replace(0, np.nan))
 
     elif step == 4:  # Query vector
         if query_terms:
@@ -673,7 +669,7 @@ def _render_animation_step(step: int, ctx: dict):
                 {"Term": t, "TF": query_tf[t], "IDF": result["idf"][t], "Weight": result["query_tfidf"][t]}
                 for t in sorted(query_terms)
             ])
-            st.dataframe(q_df.round(4), hide_index=True, width="stretch")
+            st.table(q_df.round(4).style.hide(axis="index"))
         else:
             st.warning("None of the query terms appear in the corpus, so the query vector is all zeros.",
                       icon=":material/search_off:")
@@ -704,13 +700,10 @@ def _render_animation_step(step: int, ctx: dict):
 
     elif step == 6:  # Ranking
         rank_df = pd.DataFrame([
-            {"Rank": r, "Doc": doc_ids[i], "Score": result["scores"][i]}
+            {"Rank": r, "Doc": doc_ids[i], "Score": round(result["scores"][i], 4)}
             for r, i in enumerate(result["ranking"], start=1)
         ])
-        st.dataframe(
-            rank_df, hide_index=True, width="stretch",
-            column_config={"Score": st.column_config.NumberColumn(format="%.4f")}
-        )
+        st.table(rank_df.style.hide(axis="index"))
 
     else:  # Top-k results
         max_score = max(result["scores"]) or 1.0

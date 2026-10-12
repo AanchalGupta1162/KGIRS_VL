@@ -18,41 +18,24 @@ def selected_quiz_questions() -> list:
     return [by_id[i] for i in st.session_state["quiz_ids"] if i in by_id]
 
 
-def reset_quiz(new_questions: bool = True):
-    """Clears the answers and, by default, draws a fresh set of questions."""
-    if new_questions:
-        st.session_state["quiz_ids"] = draw_quiz_questions()
-    # The radio widgets keep their own state under these keys; drop them so a redraw starts clean.
-    for key in [k for k in list(st.session_state) if k.startswith("quiz_radio_")]:
-        del st.session_state[key]
-    st.session_state["quiz_answers"] = {}
-    st.session_state["quiz_submitted"] = False
-    st.session_state["quiz_score"] = 0
-
-
 def render_quiz_section():
     """Renders Section 3: Assessment Quiz with Self-Grading and Feedback."""
     st.header("Quiz", icon=":material/quiz:")
 
     questions = selected_quiz_questions()
 
-    head_left, head_right = st.columns([3, 1], vertical_alignment="center")
-    with head_left:
-        if st.session_state.get("quiz_submitted", False):
-            score = st.session_state.get("quiz_score", 0)
-            with st.container(border=True, horizontal=True, vertical_alignment="center"):
-                st.metric("Last score", f"{score} / {QUIZ_LENGTH}")
-                st.progress(score / QUIZ_LENGTH, text=f"{score / QUIZ_LENGTH:.0%}")
-    with head_right:
-        if st.button("New set of questions", icon=":material/casino:", width="stretch"):
-            reset_quiz()
-            st.rerun()
+    if st.session_state.get("quiz_submitted", False):
+        score = st.session_state.get("quiz_score", 0)
+        with st.container(border=True, horizontal=True, vertical_alignment="center"):
+            st.metric("Last score", f"{score} / {QUIZ_LENGTH}")
+            st.progress(score / QUIZ_LENGTH, text=f"{score / QUIZ_LENGTH:.0%}")
 
     with st.form("lab_quiz_form", border=False):
         user_responses = {}
         for number, q in enumerate(questions, start=1):
             with st.container(border=True):
-                st.markdown(f":gray[Question {number} of {QUIZ_LENGTH}]  \n**{q['question']}**")
+                st.markdown(f":gray[Question {number} of {QUIZ_LENGTH}]")
+                st.markdown(q["question"])
                 selected = st.radio(
                     label=f"Options for question {number}",
                     options=q["options"],
